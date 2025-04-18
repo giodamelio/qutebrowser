@@ -722,9 +722,7 @@ Feature: Tree tab management
           - about:blank?six
           """
 
-    # uppies
-
-    ## Move tabs via mouse drags
+    ## And dragging upwards
     Scenario: Drag a tab up between siblings
         When I open about:blank?one
         And I open about:blank?two in a new tab
@@ -732,8 +730,8 @@ Feature: Tree tab management
         And I run :tab-select ?two
         And I run :debug-mouse-move -
         Then the following tabs should be open:
-          # one (active)
-          # two
+          # one
+          # two (active)
           #   three
           """
           - about:blank?two (active)
@@ -762,7 +760,8 @@ Feature: Tree tab management
 
     Scenario: Drag a tab with children up into a group
         When I open about:blank?one
-        And I open about:blank?two in a new related tab
+        And I open about:blank?foo in a new related tab
+        And I open about:blank?two in a new sibling tab
         And I open about:blank?three in a new tab
         And I open about:blank?four in a new related tab
         And I open about:blank?five in a new tab
@@ -771,13 +770,15 @@ Feature: Tree tab management
         Then the following tabs should be open:
           # one
           #   two
+          #   foo
           # three (active)
           #   four
           # five
           """
           - about:blank?one
-            - about:blank?three (active)
             - about:blank?two
+            - about:blank?three (active)
+            - about:blank?foo
           - about:blank?four
           - about:blank?five
           """
