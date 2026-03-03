@@ -312,6 +312,54 @@ class TestSessionAssign:
             sessions.session_assign('_internal', win_id=0)
 
 
+class TestSessionAssignThenSave:
+    """Test that session_assign followed by session_save works correctly."""
+
+    def test_assign_then_save_uses_assigned_session(self, sess_man, fake_windows,
+                                                     tmp_path, config_stub,
+                                                     monkeypatch):
+        """session_save after session_assign saves to the assigned session."""
+        monkeypatch.setattr(sessions, 'session_manager', sess_man)
+        config_stub.val.session.default_name = None
+
+        # Create window with default session
+        win = fake_windows(0, session_name='default')
+
+        # Assign to 'myproject'
+        sessions.session_assign('myproject', win_id=0)
+        assert win.session_name == 'myproject'
+
+        # Now save without arguments - should save to 'myproject'
+        sessions.session_save(sessions.default, win_id=0, quiet=True)
+
+        # Verify the file was created with the right name
+        assert (tmp_path / 'myproject.yml').exists()
+        assert not (tmp_path / 'default.yml').exists()
+
+    def test_assign_then_save_filters_windows(self, sess_man, fake_windows,
+                                               tmp_path, config_stub,
+                                               monkeypatch):
+        """session_save after session_assign only saves windows with matching session."""
+        import yaml
+        monkeypatch.setattr(sessions, 'session_manager', sess_man)
+        config_stub.val.session.default_name = None
+
+        # Create two windows: one for 'work', one for 'personal'
+        fake_windows(0, session_name='work')
+        fake_windows(1, session_name='personal')
+
+        # Run session_save from work window
+        sessions.session_save(sessions.default, win_id=0, quiet=True)
+
+        # Verify only work.yml was created
+        assert (tmp_path / 'work.yml').exists()
+
+        # And it only contains the work window
+        with open(tmp_path / 'work.yml') as f:
+            data = yaml.safe_load(f)
+        assert len(data['windows']) == 1
+        assert data['windows'][0]['session'] == 'work'
+
 class TestSessionClose:
     """Test the session_close command function."""
 
