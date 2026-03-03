@@ -130,6 +130,36 @@ session.lazy_restore:
   default: false
   desc: Load a restored tab as soon as it takes focus.
 
+session.style.bg:
+  type:
+    name: Dict
+    keytype: String
+    valtype:
+      name: QssColor
+      none_ok: true
+    none_ok: true
+  default: {}
+  desc: >-
+    Background colors for the statusbar per session name.
+
+    Keys are session names, values are CSS colors.
+    Example: {"work": "#2d4f67", "personal": "#4f2d67"}
+
+session.style.fg:
+  type:
+    name: Dict
+    keytype: String
+    valtype:
+      name: QssColor
+      none_ok: true
+    none_ok: true
+  default: {}
+  desc: >-
+    Foreground colors for the statusbar per session name.
+
+    Keys are session names, values are CSS colors.
+    Example: {"work": "#ffffff", "personal": "#e0e0e0"}
+
 backend:
   type:
     name: String
@@ -2208,8 +2238,9 @@ statusbar.widgets:
          format string via `clock:...`. For supported format strings, see
          https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes[the
          Python datetime documentation]."
+        - session: "Display the current window's session name."
     none_ok: true
-  default: ['keypress', 'search_match', 'url', 'scroll', 'history', 'tabs', 'progress']
+  default: ['keypress', 'search_match', 'url', 'scroll', 'history', 'tabs', 'progress', 'session']
   desc: "List of widgets displayed in the statusbar."
 
 ## tabs

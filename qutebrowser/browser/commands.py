@@ -58,7 +58,12 @@ class CommandDispatcher:
             raise cmdutils.CommandError("Private windows are unavailable with "
                                         "the single-process process model.")
 
-        return mainwindow.MainWindow(private=private).tabbed_browser
+        parent_window = objreg.get('main-window', scope='window',
+                                     window=self._win_id)
+        return mainwindow.MainWindow(
+            private=private,
+            session_name=parent_window.session_name,
+        ).tabbed_browser
 
     def _count(self) -> int:
         """Convenience method to get the widget count."""

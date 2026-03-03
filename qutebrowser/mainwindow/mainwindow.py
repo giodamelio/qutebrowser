@@ -185,13 +185,15 @@ class MainWindow(QWidget):
     def __init__(self, *,
                  private: bool,
                  geometry: Optional[QByteArray] = None,
-                 parent: Optional[QWidget] = None) -> None:
+                 parent: Optional[QWidget] = None,
+                 session_name: str = 'default') -> None:
         """Create a new main window.
 
         Args:
             geometry: The geometry to load, as a bytes-object (or None).
             private: Whether the window is in private browsing mode.
             parent: The parent the window should get.
+            session_name: Session this window belongs to.
         """
         super().__init__(parent)
         # Late import to avoid a circular dependency
@@ -276,10 +278,21 @@ class MainWindow(QWidget):
         self._set_decoration(config.val.window.hide_decoration)
 
         self.state_before_fullscreen = self.windowState()
+        self._session_name: str = session_name
         self.should_raise: bool = False
 
         stylesheet.set_register(self)
 
+    @property
+    def session_name(self):
+        """Get the session name for this window."""
+        return self._session_name
+
+    @session_name.setter
+    def session_name(self, value):
+        """Set the session name and propagate to the status bar."""
+        self._session_name = value
+        self.status.set_session_name(value)
     def _init_geometry(self, geometry):
         """Initialize the window geometry or load it from disk."""
         if geometry is not None:

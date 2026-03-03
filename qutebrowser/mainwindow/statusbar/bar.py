@@ -16,7 +16,8 @@ from qutebrowser.keyinput import modeman
 from qutebrowser.utils import usertypes, log, objreg, utils
 from qutebrowser.mainwindow.statusbar import (backforward, command, progress,
                                               keystring, percentage, url,
-                                              tabindex, textbase, clock, searchmatch)
+                                              tabindex, textbase, clock,
+                                              searchmatch, session)
 
 
 @dataclasses.dataclass
@@ -114,6 +115,20 @@ def _generate_stylesheet():
             }
         """ % (flag, flag, flag,  # noqa: S001
                option + '.fg', flag, option + '.bg')
+    qss += """
+        {% for name in conf.session.style.bg %}
+        QWidget#StatusBar[session_name="{{ name }}"] {
+            background-color: {{ conf.session.style.bg[name] }};
+        }
+        {% endfor %}
+        {% for name in conf.session.style.fg %}
+        QWidget#StatusBar[session_name="{{ name }}"],
+        QWidget#StatusBar[session_name="{{ name }}"] QLabel,
+        QWidget#StatusBar[session_name="{{ name }}"] QLineEdit {
+            color: {{ conf.session.style.fg[name] }};
+        }
+        {% endfor %}
+    """
     return qss
 
 
@@ -160,7 +175,7 @@ class StatusBar(QWidget):
         self._win_id = win_id
         self._color_flags = ColorFlags()
         self._color_flags.private = private
-
+        self._session_name = 'default'
         self._hbox = QHBoxLayout(self)
         self._set_hbox_padding()
         self._hbox.setSpacing(5)
@@ -190,6 +205,7 @@ class StatusBar(QWidget):
         self.keystring = keystring.KeyString()
         self.prog = progress.Progress(self)
         self.clock = clock.Clock()
+        self.session_widget = session.Session()
         self._text_widgets = []
         self._draw_widgets()
 
@@ -223,6 +239,8 @@ class StatusBar(QWidget):
             return new_text_widget
         elif key.startswith('clock:') or key == 'clock':
             return self.clock
+        elif key == 'session':
+            return self.session_widget
         else:
             raise utils.Unreachable(key)
 
@@ -264,6 +282,8 @@ class StatusBar(QWidget):
                     widget.format = split_segment[1]
                 else:
                     widget.format = '%X'
+            elif segment == 'session':
+                widget.set_session_name(self._session_name)
 
             widget.show()
 
@@ -272,7 +292,8 @@ class StatusBar(QWidget):
         # Start with widgets hidden and show them when needed
         for widget in [self.url, self.percentage,
                        self.backforward, self.tabindex,
-                       self.keystring, self.prog, self.clock, *self._text_widgets]:
+                       self.keystring, self.prog, self.clock,
+                       self.session_widget, *self._text_widgets]:
             assert isinstance(widget, QWidget)
             if widget in [self.prog, self.backforward]:
                 widget.enabled = False  # type: ignore[attr-defined]
@@ -312,6 +333,21 @@ class StatusBar(QWidget):
     def color_flags(self):
         """Getter for self.color_flags, so it can be used as Qt property."""
         return self._color_flags.to_stringlist()
+
+    @pyqtProperty(str)  # type: ignore[type-var]
+    def session_name(self):
+        """Getter for self.session_name, so it can be used as Qt property."""
+        return self._session_name
+
+    def set_session_name(self, name):
+        """Set the session name and update the stylesheet.
+
+        Args:
+            name: The session name string.
+        """
+        self._session_name = name
+        self.session_widget.set_session_name(name)
+        stylesheet.set_register(self, update=False)
 
     def _current_tab(self):
         """Get the currently displayed tab."""

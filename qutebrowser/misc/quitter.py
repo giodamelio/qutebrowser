@@ -60,7 +60,25 @@ class Quitter(QObject):
         self._args = args
 
     def on_last_window_closed(self) -> None:
-        """Slot which gets invoked when the last window was closed."""
+        """Slot which gets invoked when the last window was closed.
+
+        We verify there are really no live windows remaining before
+        shutting down, because batch operations like :session-close
+        may trigger this signal while other sessions still have windows.
+        """
+        from qutebrowser.utils import objreg
+        from qutebrowser.qt import sip
+        for win_id in objreg.window_registry:
+            try:
+                win = objreg.get('main-window', scope='window',
+                                 window=win_id)
+            except KeyError:
+                continue
+            if not sip.isdeleted(win) and win.isVisible():
+                log.destroy.debug(
+                    "Ignoring lastWindowClosed, window {} still open"
+                    .format(win_id))
+                return
         self.shutdown(last_window=True)
 
     def _compile_modules(self) -> None:

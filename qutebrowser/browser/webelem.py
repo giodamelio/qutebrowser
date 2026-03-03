@@ -394,7 +394,11 @@ class AbstractWebElement(collections.abc.MutableMapping):  # type: ignore[type-a
             tabbed_browser.tabopen(url, background=background)
         elif click_target == usertypes.ClickTarget.window:
             from qutebrowser.mainwindow import mainwindow
-            window = mainwindow.MainWindow(private=tabbed_browser.is_private)
+            parent_window = objreg.get('main-window', scope='window',
+                                         window=self._tab.win_id)
+            window = mainwindow.MainWindow(
+                private=tabbed_browser.is_private,
+                session_name=parent_window.session_name)
             window.tabbed_browser.tabopen(url)
             window.show()
         else:

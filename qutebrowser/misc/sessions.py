@@ -64,17 +64,24 @@ def init(parent=None):
 
 
 def shutdown(session: Optional[ArgType], last_window: bool) -> None:
-    """Handle a shutdown by saving sessions and removing the autosave file."""
+    """Handle a shutdown by saving sessions and removing the autosave file.
+
+    With per-window sessions, each active session is saved separately and
+    untagged windows are saved to _autosave.
+    """
     if session_manager is None:
         return  # type: ignore[unreachable]
 
     try:
         if session is not None:
             session_manager.save(session, last_window=last_window,
-                                 load_next_time=True)
+                                 load_next_time=True,
+                                 session_name=str(session)
+                                 if not isinstance(session, Sentinel)
+                                 else None)
         elif config.val.auto_save.session:
-            session_manager.save(default, last_window=last_window,
-                                 load_next_time=True)
+            session_manager.save_all_sessions(last_window=last_window,
+                                              load_next_time=True)
     except SessionError as e:
         log.sessions.error("Failed to save session: {}".format(e))
 
@@ -130,13 +137,11 @@ class SessionManager(QObject):
         _base_path: The path to store sessions under.
         _last_window_session: The session data of the last window which was
                               closed.
-        current: The name of the currently loaded session, or None.
         did_load: Set when a session was loaded.
     """
 
     def __init__(self, base_path, parent=None):
         super().__init__(parent)
-        self.current: Optional[str] = None
         self._base_path = base_path
         self._last_window_session = None
         self.did_load = False
@@ -256,8 +261,18 @@ class SessionManager(QObject):
                 data['history'].append(item_data)
         return data
 
-    def _save_all(self, *, only_window=None, with_private=False, with_history=True):
-        """Get a dict with data for all windows/tabs."""
+    def _save_all(self, *, only_window=None, session_name=None,
+                   with_private=False, with_history=True):
+        """Get a dict with data for all windows/tabs.
+
+        Args:
+            only_window: If set, only save the specified window.
+            session_name: Filter windows by session name.
+                None means no filter (save all windows).
+                A string means only windows with that session_name.
+            with_private: Include private windows.
+            with_history: Include tab history.
+        """
         data: _JsonType = {'windows': []}
         if only_window is not None:
             winlist: Iterable[int] = [only_window]
@@ -277,6 +292,11 @@ class SessionManager(QObject):
             if tabbed_browser.is_private and not with_private:
                 continue
 
+            # Filter by session name if requested
+            win_session = getattr(main_window, 'session_name', None)
+            if session_name is not None and win_session != session_name:
+                continue
+
             win_data: _JsonType = {}
             active_window = objects.qapp.activeWindow()
             if getattr(active_window, 'win_id', None) == win_id:
@@ -285,6 +305,7 @@ class SessionManager(QObject):
             win_data['tabs'] = []
             if tabbed_browser.is_private:
                 win_data['private'] = True
+            win_data['session'] = win_session
             for i, tab in enumerate(tabbed_browser.widgets()):
                 active = i == tabbed_browser.widget.currentIndex()
                 win_data['tabs'].append(self._save_tab(tab, active,
@@ -292,24 +313,28 @@ class SessionManager(QObject):
             data['windows'].append(win_data)
         return data
 
-    def _get_session_name(self, name):
+    def _get_session_name(self, name, win_id=None):
         """Helper for save to get the name to save the session to.
 
         Args:
             name: The name of the session to save, or the 'default' sentinel
                   object.
+            win_id: The window ID to get the session name from, if name is
+                    the default sentinel.
         """
         if name is default:
             name = config.val.session.default_name
+            if name is None and win_id is not None:
+                main_window = objreg.get('main-window', scope='window',
+                                         window=win_id)
+                name = getattr(main_window, 'session_name', None)
             if name is None:
-                if self.current is not None:
-                    name = self.current
-                else:
-                    name = 'default'
+                name = 'default'
         return name
 
     def save(self, name, last_window=False, load_next_time=False,
-             only_window=None, with_private=False, with_history=True):
+             only_window=None, with_private=False, with_history=True,
+             session_name=None):
         """Save a named session.
 
         Args:
@@ -321,6 +346,8 @@ class SessionManager(QObject):
             only_window: If set, only tabs in the specified window is saved.
             with_private: Include private windows.
             with_history: Include tab history.
+            session_name: Filter by session name (None=no filter,
+                          string=that session).
 
         Return:
             The name of the saved session.
@@ -336,6 +363,7 @@ class SessionManager(QObject):
                 return None
         else:
             data = self._save_all(only_window=only_window,
+                                  session_name=session_name,
                                   with_private=with_private,
                                   with_history=with_history)
         log.sessions.vdebug(  # type: ignore[attr-defined]
@@ -351,11 +379,12 @@ class SessionManager(QObject):
         return name
 
     def _save_autosave(self):
-        """Save the autosave session."""
+        """Save the current state for crash recovery."""
         try:
             self.save('_autosave')
         except SessionError as e:
-            log.sessions.error("Failed to save autosave session: {}".format(e))
+            log.sessions.error(
+                "Failed to save autosave session: {}".format(e))
 
     def delete_autosave(self):
         """Delete the autosave session."""
@@ -373,6 +402,75 @@ class SessionManager(QObject):
     def save_last_window_session(self):
         """Temporarily save the session for the last closed window."""
         self._last_window_session = self._save_all()
+
+
+    def save_all_sessions(self, last_window=False, load_next_time=False):
+        """Save all active sessions.
+
+        Args:
+            last_window: If set, use the saved _last_window_session data.
+            load_next_time: If set, store session list for restore on startup.
+        """
+        if last_window:
+            data = self._last_window_session
+            if data is None:
+                log.sessions.error("last_window_session is None!")
+                return
+            # Split saved data by session
+            session_groups: dict[str, list] = {}
+            for win in data['windows']:
+                sname = win.get('session', 'default')
+                session_groups.setdefault(sname, []).append(win)
+
+            for sname, windows in session_groups.items():
+                file_name = sname
+                session_data: _JsonType = {'windows': windows}
+                path = self._get_session_path(file_name)
+                try:
+                    with qtutils.savefile_open(path) as f:
+                        utils.yaml_dump(session_data, f)
+                except (OSError, UnicodeEncodeError, yaml.YAMLError) as e:
+                    log.sessions.error(
+                        "Failed to save session {}: {}".format(
+                            file_name, e))
+        else:
+            # Save from live windows
+            session_names = set()
+            for win_id in objreg.window_registry:
+                try:
+                    main_window = objreg.get('main-window', scope='window',
+                                             window=win_id)
+                except KeyError:
+                    continue
+                if not sip.isdeleted(main_window):
+                    sname = getattr(main_window, 'session_name', 'default')
+                    session_names.add(sname)
+
+            for sname in session_names:
+                try:
+                    self.save(sname, session_name=sname)
+                except SessionError as e:
+                    log.sessions.error(
+                        "Failed to save session {}: {}".format(sname, e))
+
+        if load_next_time:
+            named = set()
+            if last_window and data is not None:
+                named = set(session_groups)
+            else:
+                for win_id in objreg.window_registry:
+                    try:
+                        main_window = objreg.get('main-window',
+                                                 scope='window',
+                                                 window=win_id)
+                    except KeyError:
+                        continue
+                    if not sip.isdeleted(main_window):
+                        sname = getattr(main_window, 'session_name', 'default')
+                        named.add(sname)
+            if named:
+                configfiles.state['general']['sessions'] = (
+                    ','.join(sorted(named)))
 
     def _load_tab(self, new_tab, data):  # noqa: C901
         """Load yaml data into a newly opened tab."""
@@ -456,10 +554,18 @@ class SessionManager(QObject):
         except ValueError as e:
             raise SessionError(e)
 
-    def _load_window(self, win):
-        """Turn yaml data into windows."""
+    def _load_window(self, win, session_name=None):
+        """Turn yaml data into windows.
+
+        Args:
+            win: The YAML data for the window.
+            session_name: Session name to set on the window. If the YAML data
+                          has a 'session' key, that takes precedence.
+        """
+        effective_session = win.get('session', session_name) or 'default'
         window = mainwindow.MainWindow(geometry=win['geometry'],
-                                       private=win.get('private', None))
+                                       private=win.get('private', None),
+                                       session_name=effective_session)
         tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                     window=window.win_id)
         tab_to_focus = None
@@ -482,7 +588,7 @@ class SessionManager(QObject):
 
         Args:
             name: The name of the session to load.
-            temp: If given, don't set the current session.
+            temp: If given, don't tag loaded windows with the session name.
         """
         path = self._get_session_path(name, check_exists=True)
         try:
@@ -500,13 +606,16 @@ class SessionManager(QObject):
                 raise SessionError("Can't load a session with private windows "
                                    "in single process mode.")
 
+        # Determine session name for loaded windows
+        # Internal sessions (starting with _) and temp loads don't tag windows
+        effective_session = (name if (not name.startswith('_') and not temp)
+                            else 'default')
+
         for win in data['windows']:
-            self._load_window(win)
+            self._load_window(win, session_name=effective_session)
 
         if data['windows']:
             self.did_load = True
-        if not name.startswith('_') and not temp:
-            self.current = name
 
     def delete(self, name):
         """Delete a session."""
@@ -538,7 +647,7 @@ def session_load(name: str, *,
     Args:
         name: The name of the session.
         clear: Close all existing windows.
-        temp: Don't set the current session for :session-save.
+        temp: Don't tag loaded windows with the session name.
         force: Force loading internal sessions (starting with an underline).
         delete: Delete the saved session once it has loaded.
     """
@@ -569,6 +678,77 @@ def session_load(name: str, *,
 @cmdutils.register()
 @cmdutils.argument('name', completion=miscmodels.session)
 @cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+def session_assign(name: str = None, *, win_id: int = None) -> None:
+    """Assign the current window to a session.
+
+    Args:
+        name: The session name. If not given, assigns to 'default'.
+    """
+    if name is not None and name.startswith('_'):
+        raise cmdutils.CommandError(
+            "{} is an internal session name.".format(name))
+    main_window = objreg.get('main-window', scope='window', window=win_id)
+    main_window.session_name = name if name is not None else 'default'
+    if name:
+        message.info("Window assigned to session '{}'.".format(name))
+    else:
+        message.info("Window reassigned to default session.")
+
+
+@cmdutils.register()
+@cmdutils.argument('name', completion=miscmodels.session)
+@cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+def session_close(name: str = None, *, force: bool = False,
+                  win_id: int = None) -> None:
+    """Save a session and close all windows belonging to it.
+
+    Args:
+        name: The session name. If not given, uses the current window's
+              session.
+        force: Close without saving.
+    """
+    if name is None:
+        main_window = objreg.get('main-window', scope='window',
+                                 window=win_id)
+        name = main_window.session_name
+
+    if name.startswith('_'):
+        raise cmdutils.CommandError(
+            "{} is an internal session.".format(name))
+
+    # Save before closing
+    if not force:
+        try:
+            session_manager.save(name, session_name=name)
+        except SessionError as e:
+            raise cmdutils.CommandError(
+                "Error saving session before close: {}".format(e))
+
+    # Collect windows to close
+    windows_to_close = []
+    for wid in list(objreg.window_registry):
+        try:
+            win = objreg.get('main-window', scope='window', window=wid)
+        except KeyError:
+            continue
+        if sip.isdeleted(win):
+            continue
+        if getattr(win, 'session_name', 'default') == name:
+            windows_to_close.append(win)
+
+    if not windows_to_close:
+        raise cmdutils.CommandError(
+            "No windows found in session '{}'.".format(name))
+
+    for win in windows_to_close:
+        win.close()
+
+    message.info("Closed session '{}' ({} window{}).".format(
+        name, len(windows_to_close),
+        's' if len(windows_to_close) != 1 else ''))
+@cmdutils.register()
+@cmdutils.argument('name', completion=miscmodels.session)
+@cmdutils.argument('win_id', value=cmdutils.Value.win_id)
 @cmdutils.argument('with_private', flag='p')
 @cmdutils.argument('no_history', flag='n')
 def session_save(name: ArgType = default, *,
@@ -584,7 +764,7 @@ def session_save(name: ArgType = default, *,
     Args:
         name: The name of the session. If not given, the session configured in
               session.default_name is saved.
-        current: Save the current session instead of the default.
+        current: Save the current window's session.
         quiet: Don't show confirmation message.
         force: Force saving internal sessions (starting with an underline).
         only_active_window: Saves only tabs of the currently active window.
@@ -595,18 +775,26 @@ def session_save(name: ArgType = default, *,
         raise cmdutils.CommandError("{} is an internal session, use --force "
                                     "to save anyways.".format(name))
     if current:
-        if session_manager.current is None:
-            raise cmdutils.CommandError("No session loaded currently!")
-        name = session_manager.current
+        main_window = objreg.get('main-window', scope='window',
+                                  window=win_id)
+        current_session = getattr(main_window, 'session_name', None)
+        if current_session is None:
+            raise cmdutils.CommandError("Current window has no session!")
+        name = current_session
         assert not name.startswith('_')
+
+    resolved_name = session_manager._get_session_name(name, win_id=win_id)
+
     try:
         if only_active_window:
-            name = session_manager.save(name, only_window=win_id,
+            name = session_manager.save(resolved_name, only_window=win_id,
                                         with_private=True,
                                         with_history=not no_history)
         else:
-            name = session_manager.save(name, with_private=with_private,
-                                        with_history=not no_history)
+            name = session_manager.save(resolved_name,
+                                        with_private=with_private,
+                                        with_history=not no_history,
+                                        session_name=resolved_name)
     except SessionError as e:
         raise cmdutils.CommandError("Error while saving session: {}".format(e))
     if quiet:
@@ -641,11 +829,41 @@ def session_delete(name: str, *, force: bool = False) -> None:
 def load_default(name):
     """Load the default session.
 
+    With per-window sessions, this loads the _autosave session (untagged
+    windows) plus each saved named session.
+
     Args:
         name: The name of the session to load, or None to read state file.
     """
     if name is None and session_manager.exists('_autosave'):
-        name = '_autosave'
+        # Load untagged windows from _autosave
+        try:
+            session_manager.load('_autosave', temp=True)
+        except (SessionNotFoundError, SessionError) as e:
+            message.error("Failed to load autosave: {}".format(e))
+
+        # Load each saved named session
+        try:
+            sessions_str = configfiles.state['general']['sessions']
+            session_names = [s.strip() for s in sessions_str.split(',')
+                            if s.strip()]
+        except KeyError:
+            session_names = []
+
+        for sname in session_names:
+            try:
+                session_manager.load(sname)
+            except (SessionNotFoundError, SessionError) as e:
+                message.error(
+                    "Failed to load session {}: {}".format(sname, e))
+
+        # Clean up state
+        try:
+            del configfiles.state['general']['sessions']
+        except KeyError:
+            pass
+        return
+
     elif name is None:
         try:
             name = configfiles.state['general']['session']

@@ -639,7 +639,11 @@ class TabbedBrowser(QWidget):
         prev_focus = QApplication.focusWidget()
 
         if config.val.tabs.tabs_are_windows and self.widget.count() > 0:
-            window = mainwindow.MainWindow(private=self.is_private)
+            parent_window = objreg.get('main-window', scope='window',
+                                         window=self._win_id)
+            window = mainwindow.MainWindow(
+                private=self.is_private,
+                session_name=parent_window.session_name)
             tab = window.tabbed_browser.tabopen(
                 url=url, background=background, related=related)
             window.show()
