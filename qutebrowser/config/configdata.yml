@@ -1231,10 +1231,7 @@ content.print_element_backgrounds:
     Draw the background color and images also when the page is printed.
 
 content.private_browsing:
-  type: Bool
-  default: false
-  desc: Open new windows in private browsing mode which does not record visited
-    pages.
+  deleted: true
 
 content.proxy:
   default: system

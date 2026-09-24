@@ -18,9 +18,10 @@ from qutebrowser.qt.core import pyqtSlot, Qt, QSize
 from qutebrowser.qt.widgets import (QDialog, QLabel, QTextEdit, QPushButton,
                              QVBoxLayout, QHBoxLayout, QCheckBox,
                              QDialogButtonBox, QMessageBox)
+from qutebrowser.qt import sip
 
 import qutebrowser
-from qutebrowser.utils import version, log, utils
+from qutebrowser.utils import version, log, utils, objreg
 from qutebrowser.misc import (miscwidgets, autoupdate, msgbox, httpclient,
                               pastebin, objects)
 from qutebrowser.config import config, configfiles
@@ -74,6 +75,11 @@ def _get_environment_vars():
             if fnmatch.fnmatch(key, m):
                 info.append('{} = {}'.format(key, value))
     return '\n'.join(sorted(info))
+
+
+def _private_window_open() -> bool:
+    return any(not sip.isdeleted(window) and window.is_private
+               for window in objreg.window_registry.values())
 
 
 class _CrashDialog(QDialog):
@@ -405,7 +411,7 @@ class ExceptionCrashDialog(_CrashDialog):
         self._chk_log = QCheckBox("Include a debug log in the report")
         self._chk_log.setChecked(True)
         try:
-            if config.val.content.private_browsing:
+            if _private_window_open():
                 self._chk_log.setChecked(False)
         except Exception:
             log.misc.exception("Error while checking private browsing mode")
@@ -501,7 +507,7 @@ class FatalCrashDialog(_CrashDialog):
                                       "accessed pages in the report.")
         self._chk_history.setChecked(True)
         try:
-            if config.val.content.private_browsing:
+            if _private_window_open():
                 self._chk_history.setChecked(False)
         except Exception:
             log.misc.exception("Error while checking private browsing mode")

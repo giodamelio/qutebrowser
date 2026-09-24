@@ -63,7 +63,6 @@ Feature: Using private browsing
         When I open cookies/set?qute-test=42 without waiting in a private window
         And I wait until cookies is loaded
         And I open cookies in a new tab
-        And I set content.private_browsing to false
         Then the cookie qute-test should be set to 42
 
     Scenario: Opening private window with :navigate increment

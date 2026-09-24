@@ -247,10 +247,10 @@ def test_launching_with_old_python(python):
     assert proc.stderr.decode('ascii').startswith(error)
 
 
-def test_initial_private_browsing(request, quteproc_new):
-    """Make sure the initial window is private when the setting is set."""
+def test_initial_private_window_target(request, quteproc_new):
+    """Make sure --target private-window makes the initial window private."""
     args = (_base_args(request.config) +
-            ['--temp-basedir', '-s', 'content.private_browsing', 'true'])
+            ['--temp-basedir', '--target', 'private-window'])
     quteproc_new.start(args)
 
     quteproc_new.compare_session("""
