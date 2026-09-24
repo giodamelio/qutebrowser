@@ -10,8 +10,8 @@ QtWebEngineCore = pytest.importorskip('qutebrowser.qt.webenginecore')
 QWebEngineProfile = QtWebEngineCore.QWebEngineProfile
 QWebEngineSettings = QtWebEngineCore.QWebEngineSettings
 
-from qutebrowser.browser.webengine import webenginesettings
-from qutebrowser.utils import usertypes
+from qutebrowser.browser.webengine import webenginesettings, profiles
+from qutebrowser.utils import usertypes, qtutils
 from qutebrowser.config import configdata
 
 
@@ -28,25 +28,33 @@ def global_settings(monkeypatch, settings):
 
 
 @pytest.fixture
-def default_profile(monkeypatch):
-    """A profile to use which is set as default_profile.
+def registry(monkeypatch):
+    """A registry whose profiles never store data on disk."""
+    monkeypatch.setattr(qtutils, 'is_single_process', lambda: False)
 
-    Note we use a "private" profile here to avoid actually storing data during tests.
-    """
-    profile = QtWebEngineCore.QWebEngineProfile()
-    profile.setter = webenginesettings.ProfileSetter(profile)
-    monkeypatch.setattr(profile, 'isOffTheRecord', lambda: False)
-    monkeypatch.setattr(webenginesettings, 'default_profile', profile)
-    return profile
+    def factory(_key, private):
+        profile = QtWebEngineCore.QWebEngineProfile()
+        if not private:
+            monkeypatch.setattr(profile, 'isOffTheRecord', lambda: False)
+        return profile
+
+    def initializer(profile):
+        profile.setter = webenginesettings.ProfileSetter(profile)
+        return lambda: None
+
+    reg = profiles.ProfileRegistry(factory=factory, initializer=initializer)
+    monkeypatch.setattr(profiles, 'registry', reg)
+    return reg
 
 
 @pytest.fixture
-def private_profile(monkeypatch):
-    """A profile to use which is set as private_profile."""
-    profile = QtWebEngineCore.QWebEngineProfile()
-    profile.setter = webenginesettings.ProfileSetter(profile)
-    monkeypatch.setattr(webenginesettings, 'private_profile', profile)
-    return profile
+def default_profile(registry):
+    return registry.acquire(profiles.DEFAULT_KEY, private=False)
+
+
+@pytest.fixture
+def private_profile(registry):
+    return registry.acquire('private-1', private=True)
 
 
 @pytest.mark.parametrize("setting, value, getter, expected", [

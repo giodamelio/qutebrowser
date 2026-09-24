@@ -393,7 +393,7 @@ class AbstractWebElement(collections.abc.MutableMapping[str, str]):
             tabbed_browser.tabopen(url, background=background)
         elif click_target == usertypes.ClickTarget.window:
             from qutebrowser.mainwindow import mainwindow
-            window = mainwindow.MainWindow(private=tabbed_browser.is_private)
+            window = mainwindow.MainWindow(session=tabbed_browser.session)
             window.tabbed_browser.tabopen(url)
             window.show()
         else:

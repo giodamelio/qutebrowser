@@ -855,14 +855,14 @@ class WebKitTab(browsertab.AbstractTab):
 
     _widget: webview.WebView
 
-    def __init__(self, *, win_id, mode_manager, private, parent=None):
+    def __init__(self, *, win_id, mode_manager, session, parent=None):
         super().__init__(win_id=win_id,
                          mode_manager=mode_manager,
-                         private=private,
+                         session=session,
                          parent=parent)
         widget = webview.WebView(win_id=win_id, tab_id=self.tab_id,
-                                 private=private, tab=self)
-        if private:
+                                 private=session.private, tab=self)
+        if session.private:
             self._make_private(widget)
         self.history = WebKitHistory(tab=self)
         self.scroller = WebKitScroller(tab=self, parent=self)

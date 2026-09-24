@@ -17,7 +17,7 @@ from qutebrowser.qt.webenginecore import (
 )
 
 from qutebrowser.browser import shared
-from qutebrowser.browser.webengine import webenginesettings, certificateerror
+from qutebrowser.browser.webengine import profiles, certificateerror
 from qutebrowser.config import config
 from qutebrowser.utils import log, debug, usertypes, qtutils
 
@@ -40,7 +40,7 @@ class WebEngineView(QWebEngineView):
 
     """Custom QWebEngineView subclass with qutebrowser-specific features."""
 
-    def __init__(self, *, tabdata, win_id, private, parent=None):
+    def __init__(self, *, tabdata, win_id, session, parent=None):
         super().__init__(parent)
         self._win_id = win_id
         self._tabdata = tabdata
@@ -48,14 +48,12 @@ class WebEngineView(QWebEngineView):
         style = self.style()
         assert style is not None
         theme_color = style.standardPalette().color(QPalette.ColorRole.Base)
-        if private:
-            assert webenginesettings.private_profile is not None
-            profile = webenginesettings.private_profile
-            assert profile.isOffTheRecord()
-        else:
-            profile = webenginesettings.default_profile
+        registry = profiles.get_registry()
+        profile = registry.get(session.profile_key)
+        assert profile is not None, session
         page = WebEnginePage(theme_color=theme_color, profile=profile,
                              parent=self)
+        registry.track_page(session.profile_key, page)
         self.setPage(page)
 
     def render_widget(self):

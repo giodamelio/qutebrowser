@@ -247,19 +247,6 @@ def init(args: argparse.Namespace) -> None:
                                 hide_userconfig=True)
 
 
-def clear_private_data() -> None:
-    """Clear cookies, cache and related data for private browsing sessions."""
-    if objects.backend == usertypes.Backend.QtWebEngine:
-        from qutebrowser.browser.webengine import webenginesettings
-        webenginesettings.init_private_profile()
-    elif objects.backend == usertypes.Backend.QtWebKit:
-        from qutebrowser.browser.webkit import cookies
-        assert cookies.ram_cookie_jar is not None
-        cookies.ram_cookie_jar.setAllCookies([])
-    else:
-        raise utils.Unreachable(objects.backend)
-
-
 @pyqtSlot()
 def shutdown() -> None:
     """Shut down QWeb(Engine)Settings."""

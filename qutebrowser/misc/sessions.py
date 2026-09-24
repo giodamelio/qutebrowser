@@ -459,7 +459,7 @@ class SessionManager(QObject):
     def _load_window(self, win, session):
         """Turn yaml data into windows."""
         window = mainwindow.MainWindow(geometry=win['geometry'],
-                                       private=session.private)
+                                       session=session)
         tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                     window=window.win_id)
         tab_to_focus = None

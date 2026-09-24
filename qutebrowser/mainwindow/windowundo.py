@@ -12,7 +12,7 @@ from collections.abc import MutableSequence
 from qutebrowser.qt.core import QObject, QByteArray
 
 from qutebrowser.config import config
-from qutebrowser.mainwindow import mainwindow
+from qutebrowser.mainwindow import mainwindow, windowsessions
 from qutebrowser.misc import objects
 if TYPE_CHECKING:
     from qutebrowser.mainwindow import tabbedbrowser
@@ -66,7 +66,7 @@ class WindowUndoManager(QObject):
         """
         entry = self._undos.pop()
         window = mainwindow.MainWindow(
-            private=False,
+            session=windowsessions.manager.default,
             geometry=entry.geometry,
         )
         window.tabbed_browser.undo_stack = entry.tab_stack

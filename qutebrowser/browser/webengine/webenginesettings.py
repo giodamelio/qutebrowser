@@ -15,13 +15,15 @@ import pathlib
 from typing import cast, Any, TYPE_CHECKING
 
 from qutebrowser.qt import machinery
+from qutebrowser.qt.core import QUrl
 from qutebrowser.qt.gui import QFont
 from qutebrowser.qt.widgets import QApplication
 from qutebrowser.qt.webenginecore import QWebEngineSettings, QWebEngineProfile
 
 from qutebrowser.browser import history
 from qutebrowser.browser.webengine import (spell, webenginequtescheme, cookies,
-                                           webenginedownloads, notification)
+                                           webenginedownloads, notification,
+                                           profiles)
 from qutebrowser.config import config, websettings
 from qutebrowser.config.websettings import AttributeInfo as Attr
 from qutebrowser.misc import pakjoy
@@ -30,10 +32,6 @@ from qutebrowser.utils import (standarddir, qtutils, message, log,
 if TYPE_CHECKING:
     from qutebrowser.browser.webengine import interceptor
 
-# The default QWebEngineProfile
-default_profile = cast(QWebEngineProfile, None)
-# The QWebEngineProfile used for private (off-the-record) windows
-private_profile: QWebEngineProfile | None = None
 # The global WebEngineSettings object
 _global_settings = cast('WebEngineSettings', None)
 
@@ -52,13 +50,13 @@ class _SettingsWrapper:
     """
 
     def _default_profile_settings(self):
-        assert default_profile is not None
-        return default_profile.settings()
+        profile = profiles.get_registry().get(profiles.DEFAULT_KEY)
+        assert profile is not None
+        return profile.settings()
 
     def _settings(self):
-        yield self._default_profile_settings()
-        if private_profile:
-            yield private_profile.settings()
+        for profile in profiles.get_registry():
+            yield profile.settings()
 
     def setAttribute(self, attribute, on):
         for settings in self._settings():
@@ -370,9 +368,8 @@ class ProfileSetter:
 def _update_settings(option):
     """Update global settings when qwebsettings changed."""
     _global_settings.update_setting(option)
-    default_profile.setter.update_setting(option)  # type: ignore[attr-defined]
-    if private_profile:
-        private_profile.setter.update_setting(option)  # type: ignore[attr-defined]
+    for profile in profiles.get_registry():
+        profile.setter.update_setting(option)  # type: ignore[attr-defined]
 
 
 def _init_user_agent_str(ua):
@@ -393,11 +390,12 @@ def init_user_agent():
     _init_user_agent_str(actual_default_profile.httpUserAgent())
 
 
-def _init_profile(profile: QWebEngineProfile) -> None:
+def _init_profile(profile: QWebEngineProfile) -> profiles.Teardown:
     """Initialize a new QWebEngineProfile.
 
-    This currently only contains the steps which are shared between a private and a
-    non-private profile (at the moment, only the default profile).
+    Returns a callable undoing the connections made here. The profile registry
+    calls it before deleting the profile, so history signals don't keep
+    deleted profiles alive.
     """
     # FIXME:mypy subclass QWebEngineProfile instead?
     profile.setter = ProfileSetter(profile)  # type: ignore[attr-defined]
@@ -411,13 +409,21 @@ def _init_profile(profile: QWebEngineProfile) -> None:
     if notification.bridge is not None:
         notification.bridge.install(profile)
 
+    def clear_visited_link(url: QUrl) -> None:
+        profile.clearVisitedLinks([url])
+
     # Clear visited links on web history clear
     history.web_history.history_cleared.connect(profile.clearAllVisitedLinks)
-    history.web_history.url_cleared.connect(
-        lambda url: profile.clearVisitedLinks([url]))
+    history.web_history.url_cleared.connect(clear_visited_link)
 
     _global_settings.init_settings()
     _maybe_disable_hangouts_extension(profile)
+
+    def teardown() -> None:
+        history.web_history.history_cleared.disconnect(profile.clearAllVisitedLinks)
+        history.web_history.url_cleared.disconnect(clear_visited_link)
+
+    return teardown
 
 
 def _maybe_disable_hangouts_extension(profile: QWebEngineProfile) -> None:
@@ -483,12 +489,8 @@ def default_qt_profile() -> QWebEngineProfile:
         return QWebEngineProfile.defaultProfile()
 
 
-def _init_default_profile():
-    """Init the default QWebEngineProfile."""
-    global default_profile
-    default_profile = default_qt_profile()
-    assert not default_profile.isOffTheRecord()
-
+def _init_user_agent_and_check_version() -> None:
+    """Parse the default user agent and warn about QtWebEngine version mismatches."""
     assert parsed_user_agent is None  # avoid earlier profile initialization
     non_ua_version = version.qtwebengine_versions(avoid_init=True)
 
@@ -512,25 +514,20 @@ def _init_default_profile():
             f"  Early version: {non_ua_version}\n"
             f"  Real version:  {ua_version}")
 
-    _clear_webengine_permissions_json()
-    default_profile.setCachePath(
-        os.path.join(standarddir.cache(), 'webengine'))
-    default_profile.setPersistentStoragePath(
-        os.path.join(standarddir.data(), 'webengine'))
 
-    _init_profile(default_profile)
+def _create_profile(key: str, private: bool) -> QWebEngineProfile:
+    """Create the QWebEngineProfile for a profile key."""
+    if private:
+        profile = QWebEngineProfile()
+        assert profile.isOffTheRecord()
+        return profile
 
-
-def init_private_profile():
-    """Init the private QWebEngineProfile."""
-    global private_profile
-
-    if qtutils.is_single_process():
-        return
-
-    private_profile = QWebEngineProfile()
-    assert private_profile.isOffTheRecord()
-    _init_profile(private_profile)
+    assert key == profiles.DEFAULT_KEY, key
+    profile = default_qt_profile()
+    assert not profile.isOffTheRecord()
+    profile.setCachePath(os.path.join(standarddir.cache(), 'webengine'))
+    profile.setPersistentStoragePath(os.path.join(standarddir.data(), 'webengine'))
+    return profile
 
 
 def _init_site_specific_quirks():
@@ -671,9 +668,14 @@ def init():
 
     # Apply potential resource patches while initializing profiles.
     with pakjoy.patch_webengine():
-        _init_default_profile()
+        _init_user_agent_and_check_version()
+        # Must happen before any profile gets a persistent storage path,
+        # because Qt loads the file then.
+        _clear_webengine_permissions_json()
+        profiles.registry = profiles.ProfileRegistry(
+            factory=_create_profile, initializer=_init_profile)
+        profiles.registry.acquire(profiles.DEFAULT_KEY, private=False)
 
-    init_private_profile()
     config.instance.changed.connect(_update_settings)
 
     log.init.debug("Misc initialization...")

@@ -26,7 +26,7 @@ from qutebrowser.utils import (message, usertypes, log, qtutils, urlutils,
 from qutebrowser.utils.usertypes import KeyMode
 from qutebrowser.misc import editor, guiprocess, objects
 from qutebrowser.completion.models import urlmodel, miscmodels
-from qutebrowser.mainwindow import mainwindow, windowundo
+from qutebrowser.mainwindow import mainwindow, windowundo, windowsessions
 
 
 class CommandDispatcher:
@@ -51,14 +51,21 @@ class CommandDispatcher:
     def __repr__(self):
         return utils.get_repr(self)
 
-    def _new_tabbed_browser(self, private):
-        """Get a tabbed-browser from a new window."""
-        args = objects.qapp.arguments()
-        if private and '--single-process' in args:
-            raise cmdutils.CommandError("Private windows are unavailable with "
-                                        "the single-process process model.")
+    def _new_tabbed_browser(self, *, private: bool):
+        """Get a tabbed-browser from a new window.
 
-        return mainwindow.MainWindow(private=private).tabbed_browser
+        Args:
+            private: Put the window in a new private session instead of the
+                     current window's session.
+        """
+        if private:
+            try:
+                session = windowsessions.manager.new_private()
+            except windowsessions.PrivateUnavailableError as e:
+                raise cmdutils.CommandError(str(e))
+        else:
+            session = self._tabbed_browser.session
+        return mainwindow.MainWindow(session=session).tabbed_browser
 
     def _count(self) -> int:
         """Convenience method to get the widget count."""
@@ -114,18 +121,13 @@ class CommandDispatcher:
             tab: Whether to open in a new tab.
             background: Whether to open in the background.
             window: Whether to open in a new window
-            private: If opening a new window, open it in private browsing mode.
-                     If not given, inherit the current window's mode.
+            private: Open the URL in a new window in a new private session.
         """
         urlutils.raise_cmdexc_if_invalid(url)
         tabbed_browser = self._tabbed_browser
         cmdutils.check_exclusive((tab, background, window, private or False), 'tbwp')
-        if window and private is None:
-            private = self._tabbed_browser.is_private
-
         if window or private:
-            assert isinstance(private, bool)
-            tabbed_browser = self._new_tabbed_browser(private)
+            tabbed_browser = self._new_tabbed_browser(private=bool(private))
             tabbed_browser.tabopen(url)
             tabbed_browser.window().show()
         elif tab:
@@ -297,7 +299,7 @@ class CommandDispatcher:
                      current one (like clicking on a link).
             count: The tab index to open the URL in, or None.
             secure: Force HTTPS.
-            private: Open a new window in private browsing mode.
+            private: Open a new window in a new private session.
         """
         if url is None:
             urls = [config.val.url.default_page]
@@ -401,8 +403,7 @@ class CommandDispatcher:
             raise cmdutils.CommandError(e)
 
         if window or private:
-            new_tabbed_browser = self._new_tabbed_browser(
-                private=self._tabbed_browser.is_private or private)
+            new_tabbed_browser = self._new_tabbed_browser(private=private)
         else:
             new_tabbed_browser = self._tabbed_browser
 
@@ -466,7 +467,7 @@ class CommandDispatcher:
             win_id: The window ID of the window to give the current tab to.
             keep: If given, keep the old tab around.
             count: Overrides win_id (index starts at 1 for win_id=0).
-            private: If the tab should be detached into a private instance.
+            private: Detach the tab into a new private session.
         """
         if config.val.tabs.tabs_are_windows:
             raise cmdutils.CommandError("Can't give tabs when using "
@@ -483,8 +484,7 @@ class CommandDispatcher:
                 raise cmdutils.CommandError("Cannot detach from a window with "
                                             "only one tab")
 
-            tabbed_browser = self._new_tabbed_browser(
-                private=private or self._tabbed_browser.is_private)
+            tabbed_browser = self._new_tabbed_browser(private=private)
         else:
             if win_id not in objreg.window_registry:
                 raise cmdutils.CommandError(
@@ -1818,7 +1818,7 @@ class CommandDispatcher:
             bg: Open in a new background tab.
             tab: Open in a new tab.
             window: Open in a new window.
-            private: Open a new window in private browsing mode.
+            private: Open a new window in a new private session.
             related: If opening a new tab, position the tab as related to the
                      current one (like clicking on a link).
         """
@@ -1863,7 +1863,7 @@ class CommandDispatcher:
             bg: Open in a new background tab.
             tab: Open in a new tab.
             window: Open in a new window.
-            private: Open a new window in private browsing mode.
+            private: Open a new window in a new private session.
             related: If opening a new tab, position the tab as related to the
                      current one (like clicking on a link).
         """

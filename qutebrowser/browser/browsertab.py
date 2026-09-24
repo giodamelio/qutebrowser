@@ -36,6 +36,7 @@ from qutebrowser.qt import sip
 
 if TYPE_CHECKING:
     from qutebrowser.browser import webelem
+    from qutebrowser.mainwindow import windowsessions
     from qutebrowser.browser.inspector import AbstractWebInspector
     from qutebrowser.browser.webengine.webview import WebEngineView
     from qutebrowser.browser.webkit.webview import WebView
@@ -46,13 +47,13 @@ _WidgetType: TypeAlias = Union["WebView", "WebEngineView"]
 
 
 def create(win_id: int,
-           private: bool,
+           session: 'windowsessions.Session',
            parent: QWidget | None = None) -> 'AbstractTab':
     """Get a QtWebKit/QtWebEngine tab object.
 
     Args:
         win_id: The window ID where the tab will be shown.
-        private: Whether the tab is a private/off the record tab.
+        session: The session of the window the tab will be shown in.
         parent: The Qt parent to set.
     """
     # Importing modules here so we don't depend on QtWebEngine without the
@@ -66,7 +67,7 @@ def create(win_id: int,
         tab_class = webkittab.WebKitTab
     else:
         raise utils.Unreachable(objects.backend)
-    return tab_class(win_id=win_id, mode_manager=mode_manager, private=private,
+    return tab_class(win_id=win_id, mode_manager=mode_manager, session=session,
                      parent=parent)
 
 
@@ -1035,10 +1036,10 @@ class AbstractTab(QWidget):
 
     def __init__(self, *, win_id: int,
                  mode_manager: 'modeman.ModeManager',
-                 private: bool,
+                 session: 'windowsessions.Session',
                  parent: QWidget | None = None) -> None:
         utils.unused(mode_manager)  # needed for mypy
-        self.is_private = private
+        self.session = session
         self.win_id = win_id
         self.tab_id = next(tab_id_gen)
         super().__init__(parent)
@@ -1064,6 +1065,10 @@ class AbstractTab(QWidget):
             setattr, self, 'pending_removal', True))
 
         self.before_load_started.connect(self._on_before_load_started)
+
+    @property
+    def is_private(self) -> bool:
+        return self.session.private
 
     def _set_widget(self, widget: _WidgetType) -> None:
         # pylint: disable=protected-access

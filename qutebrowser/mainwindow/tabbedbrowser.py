@@ -161,7 +161,7 @@ class TabbedBrowser(QWidget):
         _local_marks: Jump markers local to each page
         _global_marks: Jump markers used across all pages
         default_window_icon: The qutebrowser window icon
-        is_private: Whether private browsing is on for this window.
+        session: The session this window belongs to.
 
     Signals:
         cur_progress: Progress of the current tab changed (load_progress).
@@ -199,9 +199,7 @@ class TabbedBrowser(QWidget):
     new_tab = pyqtSignal(browsertab.AbstractTab, int)
     shutting_down = pyqtSignal()
 
-    def __init__(self, *, win_id, private, parent=None):
-        if private:
-            assert not qtutils.is_single_process()
+    def __init__(self, *, win_id, session, parent=None):
         super().__init__(parent)
         self.widget = tabwidget.TabWidget(win_id, parent=self)
         self._win_id = win_id
@@ -240,10 +238,14 @@ class TabbedBrowser(QWidget):
         self._local_marks: MutableMapping[QUrl, MutableMapping[str, QPoint]] = {}
         self._global_marks: MutableMapping[str, tuple[QPoint, QUrl]] = {}
         self.default_window_icon = self._window().windowIcon()
-        self.is_private = private
+        self.session = session
         self.tab_deque = TabDeque()
         config.instance.changed.connect(self._on_config_changed)
         quitter.instance.shutting_down.connect(self.shutdown)
+
+    @property
+    def is_private(self) -> bool:
+        return self.session.private
 
     def _update_stack_size(self):
         newsize = config.instance.get('tabs.undo_stack_size')
@@ -638,14 +640,14 @@ class TabbedBrowser(QWidget):
         prev_focus = QApplication.focusWidget()
 
         if config.val.tabs.tabs_are_windows and self.widget.count() > 0:
-            window = mainwindow.MainWindow(private=self.is_private)
+            window = mainwindow.MainWindow(session=self.session)
             tab = window.tabbed_browser.tabopen(
                 url=url, background=background, related=related)
             window.show()
             return tab
 
         tab = browsertab.create(win_id=self._win_id,
-                                private=self.is_private,
+                                session=self.session,
                                 parent=self.widget)
         self._connect_tab_signals(tab)
 

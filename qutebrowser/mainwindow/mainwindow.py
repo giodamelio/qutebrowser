@@ -19,10 +19,10 @@ from qutebrowser.qt.gui import QPalette
 
 from qutebrowser.commands import runners
 from qutebrowser.api import cmdutils
-from qutebrowser.config import config, configfiles, stylesheet, websettings
+from qutebrowser.config import config, configfiles, stylesheet
 from qutebrowser.utils import (message, log, usertypes, qtutils, objreg, utils,
                                jinja, debug)
-from qutebrowser.mainwindow import messageview, prompt
+from qutebrowser.mainwindow import messageview, prompt, windowsessions
 from qutebrowser.completion import completionwidget, completer
 from qutebrowser.keyinput import modeman
 from qutebrowser.browser import downloadview, hints, downloads
@@ -48,8 +48,7 @@ def get_window(*, via_ipc: bool,
         The MainWindow that was used to open URL
     """
     if not via_ipc:
-        # Initial main window
-        return objreg.get("main-window", scope="window", window=0)
+        return objreg.last_focused_window()
 
     window = None
 
@@ -58,11 +57,13 @@ def get_window(*, via_ipc: bool,
         window = get_target_window()
         window.should_raise = target not in {'tab-silent', 'tab-bg-silent'} and not no_raise
 
-    is_private = target == 'private-window'
-
     # Otherwise, or if no window was found, create a new one
     if window is None:
-        window = MainWindow(private=is_private)
+        if target == 'private-window':
+            session = windowsessions.manager.new_private()
+        else:
+            session = windowsessions.manager.default
+        window = MainWindow(session=session)
         window.should_raise = not no_raise
 
     return window
@@ -122,7 +123,7 @@ class MainWindow(QWidget):
         _vbox: The main QVBoxLayout.
         _commandrunner: The main CommandRunner instance.
         _overlays: Widgets shown as overlay for the current webpage.
-        _private: Whether the window is in private browsing mode.
+        session: The session this window belongs to.
     """
 
     # Application wide stylesheets
@@ -183,14 +184,14 @@ class MainWindow(QWidget):
     """
 
     def __init__(self, *,
-                 private: bool,
+                 session: windowsessions.Session,
                  geometry: QByteArray | None = None,
                  parent: QWidget | None = None) -> None:
         """Create a new main window.
 
         Args:
             geometry: The geometry to load, as a bytes-object (or None).
-            private: Whether the window is in private browsing mode.
+            session: The session this window belongs to.
             parent: The parent the window should get.
         """
         super().__init__(parent)
@@ -223,10 +224,11 @@ class MainWindow(QWidget):
         self._downloadview = downloadview.DownloadView(
             model=self._download_model)
 
-        self.is_private = private
+        self.session = session
+        windowsessions.manager.add_window(session, self.win_id)
 
         self.tabbed_browser: tabbedbrowser.TabbedBrowser = tabbedbrowser.TabbedBrowser(
-            win_id=self.win_id, private=self.is_private, parent=self)
+            win_id=self.win_id, session=session, parent=self)
         objreg.register('tabbed-browser', self.tabbed_browser, scope='window',
                         window=self.win_id)
         self._init_command_dispatcher()
@@ -235,7 +237,7 @@ class MainWindow(QWidget):
         # show/hide magic immediately which would mean it'd show up as a
         # window.
         self.status = bar.StatusBar(win_id=self.win_id,
-                                    private=self.is_private,
+                                    private=session.private,
                                     parent=self)
 
         self._add_widgets()
@@ -279,6 +281,10 @@ class MainWindow(QWidget):
         self.should_raise: bool = False
 
         stylesheet.set_register(self)
+
+    @property
+    def is_private(self) -> bool:
+        return self.session.private
 
     def _init_geometry(self, geometry):
         """Initialize the window geometry or load it from disk."""
@@ -700,17 +706,6 @@ class MainWindow(QWidget):
         sessions.session_manager.save_last_window_session()
         self._save_geometry()
 
-        # Wipe private data if we close the last private window, but there are
-        # still other windows
-        if (
-                self.is_private and
-                len(objreg.window_registry) > 1 and
-                len([window for window in objreg.window_registry.values()
-                     if window.is_private]) == 1
-        ):
-            log.destroy.debug("Wiping private data before closing last "
-                              "private window")
-            websettings.clear_private_data()
-
         log.destroy.debug("Closing window {}".format(self.win_id))
         self.tabbed_browser.shutdown()
+        windowsessions.manager.remove_window(self.session, self.win_id)

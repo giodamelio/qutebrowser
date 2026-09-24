@@ -202,7 +202,7 @@ def prevnext(*, browsertab, win_id, baseurl, prev=False,
 
         if window:
             new_window = mainwindow.MainWindow(
-                private=cur_tabbed_browser.is_private)
+                session=cur_tabbed_browser.session)
             tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                         window=new_window.win_id)
             tabbed_browser.tabopen(url, background=False)

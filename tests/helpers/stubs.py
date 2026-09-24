@@ -25,6 +25,7 @@ from qutebrowser.qt.widgets import QCommonStyle, QLineEdit, QWidget, QTabBar
 from qutebrowser.browser import browsertab, downloads
 from qutebrowser.utils import usertypes
 from qutebrowser.commands import runners
+from qutebrowser.mainwindow import windowsessions
 
 
 class FakeNetworkCache(QAbstractNetworkCache):
@@ -246,7 +247,8 @@ class FakeWebTab(browsertab.AbstractTab):
                  scroll_pos_perc=(0, 0),
                  load_status=usertypes.LoadStatus.success,
                  progress=0, can_go_back=None, can_go_forward=None):
-        super().__init__(win_id=0, mode_manager=None, private=False)
+        super().__init__(win_id=0, mode_manager=None,
+                         session=windowsessions.Session('default', private=False))
         self._load_status = load_status
         self._title = title
         self._url = url

@@ -36,6 +36,7 @@ from qutebrowser.browser import greasemonkey, history, qutescheme
 from qutebrowser.browser.webkit import cookies, cache
 from qutebrowser.misc import savemanager, sql, objects, sessions
 from qutebrowser.keyinput import modeman
+from qutebrowser.mainwindow import windowsessions
 from qutebrowser.qt import sip
 
 
@@ -197,6 +198,24 @@ def web_tab_setup(qtbot, tab_registry, session_manager_stub,
 
 
 @pytest.fixture
+def profile_registry(monkeypatch, testdata_scheme):
+    """A profile registry whose only profile is Qt's own default profile.
+
+    This initializes QtWebEngine, so it depends on testdata_scheme to register
+    the qute:// scheme first.
+    """
+    profiles = pytest.importorskip('qutebrowser.browser.webengine.profiles')
+    webenginecore = pytest.importorskip('qutebrowser.qt.webenginecore')
+    registry = profiles.ProfileRegistry(
+        factory=lambda _key, _private: webenginecore.QWebEngineProfile.defaultProfile(),
+        initializer=lambda _profile: (lambda: None),
+    )
+    registry.acquire(profiles.DEFAULT_KEY, private=False)
+    monkeypatch.setattr(profiles, 'registry', registry)
+    return registry
+
+
+@pytest.fixture
 def webkit_tab(web_tab_setup, qtbot, cookiejar_and_cache, mode_manager,
                widget_container, download_stub, webpage, monkeypatch):
     webkittab = pytest.importorskip('qutebrowser.browser.webkit.webkittab')
@@ -204,7 +223,7 @@ def webkit_tab(web_tab_setup, qtbot, cookiejar_and_cache, mode_manager,
     monkeypatch.setattr(objects, 'backend', usertypes.Backend.QtWebKit)
 
     tab = webkittab.WebKitTab(win_id=0, mode_manager=mode_manager,
-                              private=False)
+                              session=windowsessions.Session('default', private=False))
     tab.backend = usertypes.Backend.QtWebKit
     widget_container.set_widget(tab)
 
@@ -215,7 +234,7 @@ def webkit_tab(web_tab_setup, qtbot, cookiejar_and_cache, mode_manager,
 
 
 @pytest.fixture
-def webengine_tab(web_tab_setup, qtbot, redirect_webengine_data,
+def webengine_tab(web_tab_setup, qtbot, redirect_webengine_data, profile_registry,
                   tabbed_browser_stubs, mode_manager, widget_container,
                   monkeypatch):
     monkeypatch.setattr(objects, 'backend', usertypes.Backend.QtWebEngine)
@@ -228,7 +247,7 @@ def webengine_tab(web_tab_setup, qtbot, redirect_webengine_data,
         'qutebrowser.browser.webengine.webenginetab')
 
     tab = webenginetab.WebEngineTab(win_id=0, mode_manager=mode_manager,
-                                    private=False)
+                                    session=windowsessions.Session('default', private=False))
     tab.backend = usertypes.Backend.QtWebEngine
     widget_container.set_widget(tab)
 

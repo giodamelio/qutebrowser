@@ -634,7 +634,7 @@ The editor which should be launched can be configured via the `editor.command` c
 * +*-b*+, +*--bg*+: Open in a new background tab.
 * +*-t*+, +*--tab*+: Open in a new tab.
 * +*-w*+, +*--window*+: Open in a new window.
-* +*-p*+, +*--private*+: Open a new window in private browsing mode.
+* +*-p*+, +*--private*+: Open a new window in a new private session.
 * +*-r*+, +*--related*+: If opening a new tab, position the tab as related to the current one (like clicking on a link).
 
 
@@ -1023,7 +1023,7 @@ If the URL contains newlines, each line gets opened in its own tab.
 * +*-t*+, +*--tab*+: Open in a new tab.
 * +*-w*+, +*--window*+: Open in a new window.
 * +*-s*+, +*--secure*+: Force HTTPS.
-* +*-p*+, +*--private*+: Open a new window in private browsing mode.
+* +*-p*+, +*--private*+: Open a new window in a new private session.
 
 ==== count
 The tab index to open the URL in.
@@ -1460,7 +1460,7 @@ If no win_id is given, the tab will get detached into a new window.
 
 ==== optional arguments
 * +*-k*+, +*--keep*+: If given, keep the old tab around.
-* +*-p*+, +*--private*+: If the tab should be detached into a private instance.
+* +*-p*+, +*--private*+: Detach the tab into a new private session.
 
 ==== count
 Overrides win_id (index starts at 1 for win_id=0).
