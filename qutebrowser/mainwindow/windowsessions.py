@@ -9,16 +9,69 @@ QWebEngineProfile the window's pages use.
 """
 
 import itertools
+import re
 from typing import cast
 
 from qutebrowser.browser.webengine import profiles
+from qutebrowser.misc import sessionfile
 from qutebrowser.utils import log, utils
 
 
 DEFAULT_NAME = 'default'
 PRIVATE_PREFIX = 'private-'
+DEFAULT_CONTAINER = sessionfile.DEFAULT_CONTAINER
+_NAME_RE = re.compile(r'[a-z0-9][a-z0-9_-]*')
 
 PrivateUnavailableError = profiles.PrivateUnavailableError
+
+
+class Error(Exception):
+
+    """A session operation failed in a way to show to the user."""
+
+
+class InvalidNameError(Error):
+
+    """A session or container name breaks the naming rules."""
+
+
+class UnknownSessionError(Error):
+
+    """No session has the given name."""
+
+
+class SessionExistsError(Error):
+
+    """A session with the given name already exists."""
+
+
+class UnknownContainerError(Error):
+
+    """No container has the given name."""
+
+
+class SessionStateError(Error):
+
+    """The session is in the wrong state for the operation."""
+
+
+def validate_name(name: str) -> None:
+    """Check a session or container name, including `default`."""
+    if not _NAME_RE.fullmatch(name):
+        raise InvalidNameError(
+            f"Invalid name {name!r}: use lowercase letters, digits, '_' and "
+            "'-', starting with a letter or digit")
+    if name.startswith(PRIVATE_PREFIX):
+        raise InvalidNameError(
+            f"Invalid name {name!r}: the {PRIVATE_PREFIX!r} prefix is "
+            "reserved for private sessions")
+
+
+def validate_new_name(name: str) -> None:
+    """Check a name for a session or container that is being created."""
+    validate_name(name)
+    if name == DEFAULT_NAME:
+        raise InvalidNameError(f"{DEFAULT_NAME!r} is reserved")
 
 
 class Session:
