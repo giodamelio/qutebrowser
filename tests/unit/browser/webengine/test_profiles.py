@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip('qutebrowser.qt.webenginecore')
 
 from qutebrowser.qt import sip
-from qutebrowser.qt.core import QObject
+from qutebrowser.qt.core import QObject, pyqtSignal
 
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.utils import qtutils
@@ -156,3 +156,47 @@ def test_initializer_failure_leaves_no_entry(monkeypatch):
         reg.acquire('private-1', private=True)
     assert reg.get('private-1') is None
     assert list(reg) == []
+
+
+class FakeDownload(QObject):
+
+    isFinishedChanged = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._finished = False
+
+    def isFinished(self):
+        return self._finished
+
+    def finish(self):
+        self._finished = True
+        self.isFinishedChanged.emit()
+
+
+def test_download_holds_profile_until_finished(registry):
+    profile = registry.acquire('private-1', private=True)
+    download = FakeDownload()
+    registry.track_download(profile, download)
+
+    registry.release('private-1')
+    assert not profile.deleted
+
+    download.finish()
+    assert profile.deleted
+
+
+def test_destroyed_download_drops_hold(registry):
+    profile = registry.acquire('private-1', private=True)
+    download = FakeDownload()
+    registry.track_download(profile, download)
+    registry.release('private-1')
+
+    sip.delete(download)
+    assert profile.deleted
+
+
+def test_track_download_unknown_profile(registry):
+    registry.acquire('private-1', private=True)
+    with pytest.raises(KeyError):
+        registry.track_download(FakeProfile('other', True), FakeDownload())

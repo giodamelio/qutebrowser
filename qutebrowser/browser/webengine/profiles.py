@@ -13,7 +13,7 @@ import functools
 from collections.abc import Callable, Iterator
 
 from qutebrowser.qt.core import QObject
-from qutebrowser.qt.webenginecore import QWebEngineProfile
+from qutebrowser.qt.webenginecore import QWebEngineProfile, QWebEngineDownloadRequest
 
 from qutebrowser.utils import log, qtutils
 
@@ -42,7 +42,7 @@ class _Entry:
     private: bool
     teardown: Teardown
     refcount: int = 0
-    pages: set[int] = dataclasses.field(default_factory=set)
+    holds: set[int] = dataclasses.field(default_factory=set)
 
 
 class ProfileRegistry:
@@ -88,11 +88,11 @@ class ProfileRegistry:
 
         del self._live[key]
         entry.teardown()
-        if entry.pages:
+        if entry.holds:
             # Deleting a profile before its pages makes Qt warn and can keep
-            # the profile alive.
+            # the profile alive, and it cancels the profile's downloads.
             log.misc.debug(f"Profile {key!r} released, waiting for "
-                           f"{len(entry.pages)} pages")
+                           f"{len(entry.holds)} pages and downloads")
             self._dying.append(entry)
         else:
             self._delete(entry)
@@ -106,16 +106,36 @@ class ProfileRegistry:
 
     def track_page(self, key: str, page: QObject) -> None:
         """Delay deleting key's profile until page is destroyed."""
-        entry = self._live[key]
-        page_id = id(page)
-        entry.pages.add(page_id)
-        page.destroyed.connect(
-            functools.partial(self._on_page_destroyed, entry, page_id))
+        self._hold(self._live[key], page)
 
-    def _on_page_destroyed(self, entry: _Entry, page_id: int,
-                           _obj: QObject | None = None) -> None:
-        entry.pages.discard(page_id)
-        if not entry.pages and any(dying is entry for dying in self._dying):
+    def track_download(self, profile: QWebEngineProfile,
+                       download: QWebEngineDownloadRequest) -> None:
+        """Delay deleting profile until download is finished or destroyed."""
+        entry = self._entry_for(profile)
+        download_id = self._hold(entry, download)
+
+        def on_finished_changed() -> None:
+            if download.isFinished():
+                self._drop(entry, download_id)
+
+        download.isFinishedChanged.connect(on_finished_changed)
+
+    def _entry_for(self, profile: QWebEngineProfile) -> _Entry:
+        for entry in self._live.values():
+            if entry.profile is profile:
+                return entry
+        raise KeyError(f"Profile {profile!r} is not in the registry")
+
+    def _hold(self, entry: _Entry, obj: QObject) -> int:
+        obj_id = id(obj)
+        entry.holds.add(obj_id)
+        obj.destroyed.connect(functools.partial(self._drop, entry, obj_id))
+        return obj_id
+
+    def _drop(self, entry: _Entry, obj_id: int,
+              _obj: QObject | None = None) -> None:
+        entry.holds.discard(obj_id)
+        if not entry.holds and any(dying is entry for dying in self._dying):
             self._dying = [dying for dying in self._dying if dying is not entry]
             self._delete(entry)
 

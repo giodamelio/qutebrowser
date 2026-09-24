@@ -13,6 +13,7 @@ from qutebrowser.qt.core import pyqtSlot, Qt, QUrl, QObject
 from qutebrowser.qt.webenginecore import QWebEngineDownloadRequest
 
 from qutebrowser.browser import downloads, pdfjs
+from qutebrowser.browser.webengine import profiles
 from qutebrowser.utils import (debug, usertypes, message, log, objreg, urlutils,
                                utils, version)
 
@@ -245,8 +246,15 @@ class DownloadManager(downloads.AbstractDownloadManager):
 
     def install(self, profile):
         """Set up the download manager on a QWebEngineProfile."""
-        profile.downloadRequested.connect(self.handle_download,
-                                          Qt.ConnectionType.DirectConnection)
+        profile.downloadRequested.connect(
+            functools.partial(self._on_download_requested, profile),
+            Qt.ConnectionType.DirectConnection)
+
+    def _on_download_requested(self, profile, qt_item):
+        # Closing the last window of a private session releases its profile,
+        # and deleting the profile would cancel this download.
+        profiles.get_registry().track_download(profile, qt_item)
+        self.handle_download(qt_item)
 
     @pyqtSlot(QWebEngineDownloadRequest)
     def handle_download(self, qt_item):
