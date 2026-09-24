@@ -370,7 +370,7 @@ def get_tab(win_id, target):
     """
     tabbed_browser = objreg.get('tabbed-browser', scope='window', window=win_id)
     if target == usertypes.ClickTarget.window:
-        window = mainwindow.MainWindow(private=tabbed_browser.is_private)
+        window = mainwindow.MainWindow(session=tabbed_browser.session)
         tab = window.tabbed_browser.tabopen(url=None, background=False)
         window.show()
         return tab

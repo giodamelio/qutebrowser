@@ -191,15 +191,17 @@ def _process_args(args):
     new_window = None
     if not sessions.session_manager.did_load:
         log.init.debug("Initializing main window...")
-        private = args.target == 'private-window'
-        if private and qtutils.is_single_process():
-            err = Exception("Private windows are unavailable with "
-                            "the single-process process model.")
-            error.handle_fatal_exc(err, 'Cannot start in private mode',
-                                   no_err_windows=args.no_err_windows)
-            sys.exit(usertypes.Exit.err_init)
+        if args.target == 'private-window':
+            try:
+                session = windowsessions.manager.new_private()
+            except windowsessions.PrivateUnavailableError as e:
+                error.handle_fatal_exc(e, 'Cannot start in private mode',
+                                       no_err_windows=args.no_err_windows)
+                sys.exit(usertypes.Exit.err_init)
+        else:
+            session = windowsessions.manager.default
 
-        new_window = mainwindow.MainWindow(private=private)
+        new_window = mainwindow.MainWindow(session=session)
 
     process_pos_args(args.command)
     _open_startpage()

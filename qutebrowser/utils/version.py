@@ -946,15 +946,14 @@ def _webengine_extensions() -> Sequence[str]:
         objects.backend == usertypes.Backend.QtWebEngine
         and machinery.IS_QT6  # mypy; TODO early return once Qt 5 is dropped
     ):
-        from qutebrowser.browser.webengine import webenginesettings
+        from qutebrowser.browser.webengine import webenginesettings, profiles
         lines.append("WebExtensions:")
 
-        if webenginesettings.default_profile:
-            profile = webenginesettings.default_profile
-        elif "avoid-chromium-init" in objects.debug_flags:
-            lines[0] += " unknown (avoiding init)"
-            return lines
-        else:
+        profile = profiles.default_profile()
+        if profile is None:
+            if "avoid-chromium-init" in objects.debug_flags:
+                lines[0] += " unknown (avoiding init)"
+                return lines
             profile = webenginesettings.default_qt_profile()
 
         try:

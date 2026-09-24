@@ -1287,13 +1287,13 @@ class WebEngineTab(browsertab.AbstractTab):
     audio: WebEngineAudio
     printing: WebEnginePrinting
 
-    def __init__(self, *, win_id, mode_manager, private, parent=None):
+    def __init__(self, *, win_id, mode_manager, session, parent=None):
         super().__init__(win_id=win_id,
                          mode_manager=mode_manager,
-                         private=private,
+                         session=session,
                          parent=parent)
         widget = webview.WebEngineView(tabdata=self.data, win_id=win_id,
-                                       private=private)
+                                       session=session)
         self.history = WebEngineHistory(tab=self)
         self.scroller = WebEngineScroller(tab=self, parent=self)
         self.caret = WebEngineCaret(mode_manager=mode_manager,
