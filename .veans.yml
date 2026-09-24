@@ -1,0 +1,13 @@
+server: https://vikunja.gio.ninja
+project_id: 7
+project_identifier: QUTE
+view_id: 28
+buckets:
+    todo: 27
+    in_progress: 28
+    in_review: 30
+    done: 29
+    scrapped: 31
+bot:
+    username: bot-qutebrowser
+    user_id: 6
