@@ -489,6 +489,11 @@ def _init_modules(*, args):
     log.init.debug("Initializing window sessions...")
     windowsessions.init()
 
+    if args.debug:
+        # Only the end-to-end test harness uses these commands.
+        from qutebrowser.misc import debugsessions
+        utils.unused(debugsessions)
+
     log.init.debug("Initializing sessions...")
     sessions.init(objects.qapp)
 
