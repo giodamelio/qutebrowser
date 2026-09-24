@@ -33,3 +33,28 @@ def test_qt_version(same):
 def test_qt_version_no_args():
     """Make sure qt_version without arguments at least works."""
     earlyinit.qt_version()
+
+
+class _Died(Exception):
+    pass
+
+
+def _fake_die(message, exception=None):
+    raise _Died(message)
+
+
+def test_check_qt_version_refuses_qt5(monkeypatch):
+    from qutebrowser.qt import core as qtcore
+    monkeypatch.setattr(qtcore, 'QT_VERSION', 0x050F0A)
+    monkeypatch.setattr(qtcore, 'QT_VERSION_STR', '5.15.10')
+    monkeypatch.setattr(earlyinit, 'get_qt_version',
+                        lambda: qtcore.QVersionNumber(5, 15, 10))
+    monkeypatch.setattr(earlyinit, '_die', _fake_die)
+
+    with pytest.raises(_Died, match='requires Qt 6'):
+        earlyinit.check_qt_version()
+
+
+def test_check_qt_version_accepts_qt6(monkeypatch):
+    monkeypatch.setattr(earlyinit, '_die', _fake_die)
+    earlyinit.check_qt_version()

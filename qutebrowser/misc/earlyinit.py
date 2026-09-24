@@ -198,6 +198,11 @@ def check_qt_version():
                                                            PYQT_VERSION_STR))
         _die(text)
 
+    if QT_VERSION < 0x060000:
+        text = ("Fatal error: This fork of qutebrowser requires Qt 6, but "
+                "Qt {} is installed.".format(qt_version()))
+        _die(text)
+
     if 0x060000 <= PYQT_VERSION < 0x060202:
         text = ("Fatal error: With Qt 6, PyQt >= 6.2.2 is required, but "
                 "{} is installed.".format(PYQT_VERSION_STR))
