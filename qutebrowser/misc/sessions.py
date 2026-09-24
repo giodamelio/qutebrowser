@@ -21,7 +21,7 @@ from qutebrowser.utils import (standarddir, objreg, qtutils, log, message,
 from qutebrowser.api import cmdutils
 from qutebrowser.config import config, configfiles
 from qutebrowser.completion.models import miscmodels
-from qutebrowser.mainwindow import mainwindow
+from qutebrowser.mainwindow import mainwindow, windowsessions
 from qutebrowser.qt import sip
 from qutebrowser.misc import objects, throttle
 
@@ -456,10 +456,10 @@ class SessionManager(QObject):
         except ValueError as e:
             raise SessionError(e)
 
-    def _load_window(self, win):
+    def _load_window(self, win, session):
         """Turn yaml data into windows."""
         window = mainwindow.MainWindow(geometry=win['geometry'],
-                                       private=win.get('private', None))
+                                       private=session.private)
         tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                     window=window.win_id)
         tab_to_focus = None
@@ -500,8 +500,15 @@ class SessionManager(QObject):
                 raise SessionError("Can't load a session with private windows "
                                    "in single process mode.")
 
+        # All private windows in one file share a profile, as they did upstream.
+        private_session = None
         for win in data['windows']:
-            self._load_window(win)
+            if win.get('private'):
+                if private_session is None:
+                    private_session = windowsessions.manager.new_private()
+                self._load_window(win, private_session)
+            else:
+                self._load_window(win, windowsessions.manager.default)
 
         if data['windows']:
             self.did_load = True

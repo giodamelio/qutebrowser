@@ -47,7 +47,7 @@ from qutebrowser.browser.webkit import cookies, cache
 from qutebrowser.browser.webkit.network import networkmanager
 from qutebrowser.extensions import loader
 from qutebrowser.keyinput import macros, eventfilter
-from qutebrowser.mainwindow import mainwindow, prompt, windowundo
+from qutebrowser.mainwindow import mainwindow, prompt, windowundo, windowsessions
 from qutebrowser.misc import (ipc, savemanager, sessions, crashsignal,
                               earlyinit, sql, cmdhistory, backendproblem,
                               objects, quitter, nativeeventfilter)
@@ -483,6 +483,9 @@ def _init_modules(*, args):
     log.init.debug("Initializing websettings...")
     websettings.init(args)
     quitter.instance.shutting_down.connect(websettings.shutdown)
+
+    log.init.debug("Initializing window sessions...")
+    windowsessions.init()
 
     log.init.debug("Initializing sessions...")
     sessions.init(objects.qapp)
