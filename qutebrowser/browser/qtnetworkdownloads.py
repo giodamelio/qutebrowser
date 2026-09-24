@@ -15,7 +15,7 @@ from qutebrowser.qt.core import pyqtSlot, pyqtSignal, QTimer, QUrl
 from qutebrowser.qt.widgets import QApplication
 from qutebrowser.qt.network import QNetworkRequest, QNetworkReply, QNetworkAccessManager
 
-from qutebrowser.config import config, websettings
+from qutebrowser.config import websettings
 from qutebrowser.utils import message, usertypes, log, urlutils, utils, debug, objreg, qtlog
 from qutebrowser.misc import quitter
 from qutebrowser.browser import downloads
@@ -394,7 +394,7 @@ class DownloadManager(downloads.AbstractDownloadManager):
         super().__init__(parent)
         self._networkmanager = networkmanager.NetworkManager(
             win_id=None, tab_id=None,
-            private=config.val.content.private_browsing, parent=self)
+            private=False, parent=self)
 
     @pyqtSlot('QUrl')
     def get(self, url, cache=True, **kwargs):

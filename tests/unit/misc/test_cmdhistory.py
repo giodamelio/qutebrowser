@@ -127,10 +127,9 @@ def test_previtem_index_error(hist):
             hist.previtem()
 
 
-def test_append_private_mode(hist, config_stub):
+def test_append_private_mode(hist):
     """Test append in private mode."""
     hist._private = True
-    config_stub.val.content.private_browsing = True
     hist.append('new item')
     assert hist.history == HISTORY
 

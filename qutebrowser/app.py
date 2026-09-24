@@ -192,8 +192,7 @@ def _process_args(args):
     if not sessions.session_manager.did_load:
         log.init.debug("Initializing main window...")
         private = args.target == 'private-window'
-        if (config.val.content.private_browsing or
-                private) and qtutils.is_single_process():
+        if private and qtutils.is_single_process():
             err = Exception("Private windows are unavailable with "
                             "the single-process process model.")
             error.handle_fatal_exc(err, 'Cannot start in private mode',

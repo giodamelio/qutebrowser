@@ -194,7 +194,6 @@
 |<<content.plugins,content.plugins>>|Enable plugins in Web pages.
 |<<content.prefers_reduced_motion,content.prefers_reduced_motion>>|Request websites to minimize non-essentials animations and motion.
 |<<content.print_element_backgrounds,content.print_element_backgrounds>>|Draw the background color and images also when the page is printed.
-|<<content.private_browsing,content.private_browsing>>|Open new windows in private browsing mode which does not record visited pages.
 |<<content.proxy,content.proxy>>|Proxy to use.
 |<<content.proxy_dns_requests,content.proxy_dns_requests>>|Send DNS requests over the configured proxy.
 |<<content.register_protocol_handler,content.register_protocol_handler>>|Allow websites to register protocol handlers via `navigator.registerProtocolHandler`.
@@ -2699,14 +2698,6 @@ This setting is only available with the QtWebEngine backend.
 Type: <<types,Bool>>
 
 Default: +pass:[true]+
-
-[[content.private_browsing]]
-=== content.private_browsing
-Open new windows in private browsing mode which does not record visited pages.
-
-Type: <<types,Bool>>
-
-Default: +pass:[false]+
 
 [[content.proxy]]
 === content.proxy
