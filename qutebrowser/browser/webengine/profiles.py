@@ -64,8 +64,15 @@ class ProfileRegistry:
             log.misc.debug(f"Creating profile {key!r} (private: {private})")
             profile = self._factory(key, private)
             entry = _Entry(key=key, profile=profile, private=private,
-                           teardown=self._initializer(profile))
+                           teardown=lambda: None)
+            # The initializer applies global settings by iterating over the
+            # registry, so the new profile must already be listed.
             self._live[key] = entry
+            try:
+                entry.teardown = self._initializer(profile)
+            except BaseException:
+                del self._live[key]
+                raise
         elif entry.private != private:
             raise ValueError(f"Profile {key!r} exists with private={entry.private}, "
                              f"requested private={private}")

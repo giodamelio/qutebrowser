@@ -129,3 +129,30 @@ def test_default_profile(monkeypatch, registry):
     assert profiles.default_profile() is None
     default = registry.acquire(profiles.DEFAULT_KEY, private=False)
     assert profiles.default_profile() is default
+
+
+def test_initializer_sees_new_profile(monkeypatch):
+    """Settings applied during init iterate the registry, so it must list the profile."""
+    monkeypatch.setattr(qtutils, 'is_single_process', lambda: False)
+    seen = []
+
+    def initializer(profile):
+        seen.append(list(reg))
+        return lambda: None
+
+    reg = profiles.ProfileRegistry(factory=FakeProfile, initializer=initializer)
+    profile = reg.acquire('private-1', private=True)
+    assert seen == [[profile]]
+
+
+def test_initializer_failure_leaves_no_entry(monkeypatch):
+    monkeypatch.setattr(qtutils, 'is_single_process', lambda: False)
+
+    def initializer(_profile):
+        raise RuntimeError("init failed")
+
+    reg = profiles.ProfileRegistry(factory=FakeProfile, initializer=initializer)
+    with pytest.raises(RuntimeError, match='init failed'):
+        reg.acquire('private-1', private=True)
+    assert reg.get('private-1') is None
+    assert list(reg) == []
