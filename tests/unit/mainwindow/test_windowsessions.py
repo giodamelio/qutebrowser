@@ -113,3 +113,29 @@ def test_legacy_session_load_groups_private_windows(manager, tmp_path,
     assert first.private
     assert first is second
     assert third is manager.default
+
+
+@pytest.mark.parametrize('name', ['work', 'a', 'aws-prod', 'x_1', '9lives'])
+def test_validate_name_valid(name):
+    windowsessions.validate_name(name)
+    windowsessions.validate_new_name(name)
+
+
+@pytest.mark.parametrize('name, match', [
+    ('', 'Invalid name'),
+    ('Work', 'Invalid name'),
+    ('_autosave', 'Invalid name'),
+    ('-x', 'Invalid name'),
+    ('a b', 'Invalid name'),
+    ('a/b', 'Invalid name'),
+    ('private-1', 'reserved for private sessions'),
+])
+def test_validate_name_invalid(name, match):
+    with pytest.raises(windowsessions.InvalidNameError, match=match):
+        windowsessions.validate_name(name)
+
+
+def test_validate_new_name_rejects_default():
+    windowsessions.validate_name('default')
+    with pytest.raises(windowsessions.InvalidNameError, match="'default' is reserved"):
+        windowsessions.validate_new_name('default')
