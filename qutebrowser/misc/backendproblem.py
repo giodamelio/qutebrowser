@@ -486,6 +486,15 @@ class _BackendProblemChecker:
 
     def check(self) -> None:
         """Run all checks."""
+        if objects.backend == usertypes.Backend.QtWebKit:
+            self._show_dialog(
+                backend=usertypes.Backend.QtWebKit,
+                because="this fork of qutebrowser only supports the "
+                        "QtWebEngine backend",
+                text="",
+                suggest_other_backend=True,
+            )
+
         self._check_backend_modules()
         if objects.backend == usertypes.Backend.QtWebEngine:
             self._check_webengine_version()

@@ -800,8 +800,9 @@ def test_unavailable_backend(request, quteproc_new):
     quteproc_new.exit_expected = True
     quteproc_new.start(args)
     line = quteproc_new.wait_for(
-        message=('*qutebrowser tried to start with the Qt* backend but failed '
-                 'because * could not be imported.*'))
+        message=('*qutebrowser tried to start with the QtWebKit backend but failed '
+                 'because this fork of qutebrowser only supports the QtWebEngine '
+                 'backend*'))
     line.expected = True
 
 
