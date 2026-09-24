@@ -1,7 +1,43 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
-  python = pkgs.python312.withPackages (ps: with ps; [
+  # nixpkgs ships pytest-bdd 7.1.2 and no gherkin-official, but the repo pins
+  # pytest-bdd 8.1.0 (misc/requirements/requirements-tests.txt), and 7.1.2
+  # fails collection under pytest 9 with filterwarnings = error.
+  pythonBase = pkgs.python312.override {
+    self = pythonBase;
+    packageOverrides = pyfinal: pyprev: {
+      gherkin-official = pyfinal.buildPythonPackage rec {
+        pname = "gherkin_official";
+        version = "29.0.0";
+        pyproject = true;
+        src = pkgs.fetchPypi {
+          inherit pname version;
+          hash = "sha256-2+oyVhFY8CKA11edF5sBkWDQcs4IMZdiXi+Apndrues=";
+        };
+        build-system = [ pyfinal.setuptools ];
+        dependencies = [ pyfinal.typing-extensions ];
+        pythonImportsCheck = [ "gherkin" ];
+      };
+      pytest-bdd = pyprev.pytest-bdd.overridePythonAttrs (old: rec {
+        version = "8.1.0";
+        src = pkgs.fetchFromGitHub {
+          owner = "pytest-dev";
+          repo = "pytest-bdd";
+          tag = version;
+          hash = "sha256-jxrjUXmyDEfw1sxwnlSUAfz3Kkv/4TwKFx7cone0Eyw=";
+        };
+        patches = [ ];
+        dependencies = (old.dependencies or old.propagatedBuildInputs or [ ]) ++ [
+          pyfinal.gherkin-official
+          pyfinal.packaging
+        ];
+        doCheck = false;
+      });
+    };
+  };
+
+  python = pythonBase.withPackages (ps: with ps; [
     # Core runtime dependencies
     pyqt6-webengine
     pyqt6
@@ -63,6 +99,7 @@ in
 
     # For running tests with virtual display
     xvfb-run
+    xorg.xorgserver
   ];
 
   env = {
