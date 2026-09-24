@@ -49,15 +49,28 @@ Feature: Using private browsing
         And I open cookies
         Then the cookie cookie-to-delete should not be set
 
-    Scenario: Make sure private data is not cleared when closing a private window but another remains
+    Scenario: Private windows opened separately do not share cookies
         When I open about:blank in a private window
-        And I open about:blank in a private window
-        And I open cookies/set?cookie-to-preserve=1 without waiting in a new tab
+        And I open cookies/set?private-isolated=1 without waiting in a new tab
         And I wait until cookies is loaded
-        And I run :close
-        And I open about:blank in a private window
-        And I open cookies
-        Then the cookie cookie-to-preserve should be set to 1
+        And I open cookies in a private window
+        Then the cookie private-isolated should not be set
+
+    Scenario: Windows in the same private session share cookies
+        When I open about:blank in a private window
+        And I open cookies/set?private-shared=1 without waiting in a new tab
+        And I wait until cookies is loaded
+        And I open cookies in a new window
+        Then the cookie private-shared should be set to 1
+
+    Scenario: Detaching a tab with :tab-give -p starts a new private session
+        When I open about:blank in a private window
+        And I open cookies/set?private-detach=1 without waiting in a new tab
+        And I wait until cookies is loaded
+        And I open cookies in a new tab
+        And I run :tab-give -p
+        And I wait until cookies is loaded
+        Then the cookie private-detach should not be set
 
     Scenario: Sharing cookies with private browsing
         When I open cookies/set?qute-test=42 without waiting in a private window
