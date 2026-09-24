@@ -6,6 +6,7 @@
 
 import os
 import os.path
+import pathlib
 import re
 import sys
 import time
@@ -544,11 +545,17 @@ def compare_session(quteproc, docstring):
     quteproc.compare_session(docstring)
 
 
-@bdd.then(
-    bdd.parsers.parse("The session saved with {flags} should look like:"))
-def compare_session_flags(quteproc, flags, docstring):
-    """Compare the current session saved with custom flags."""
-    quteproc.compare_session(docstring, flags=flags)
+@bdd.then(bdd.parsers.parse('the session file {name} should contain "{text}"'))
+def session_file_contains(quteproc, name, text):
+    path = pathlib.Path(quteproc.basedir, 'data', 'sessions', f'{name}.yml')
+    assert text in path.read_text(encoding='utf-8')
+
+
+@bdd.then(bdd.parsers.parse(
+    'the session file {name} should not contain "{text}"'))
+def session_file_not_contains(quteproc, name, text):
+    path = pathlib.Path(quteproc.basedir, 'data', 'sessions', f'{name}.yml')
+    assert text not in path.read_text(encoding='utf-8')
 
 
 @bdd.then("no crash should happen")

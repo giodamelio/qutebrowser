@@ -821,16 +821,16 @@ class QuteProc(testprocess.Process):
         self.wait_for_load_finished_url(url, timeout=timeout,
                                         load_status=load_status)
 
-    def get_session(self, flags="--with-private"):
-        """Save the session and get the parsed session data."""
+    def get_session(self):
+        """Dump all open windows and get the parsed data."""
         with tempfile.TemporaryDirectory() as tdir:
-            session = pathlib.Path(tdir) / 'session.yml'
-            self.send_cmd(f':session-save {flags} "{session}"')
+            path = pathlib.Path(tdir) / 'windows.yml'
+            self.send_cmd(f':debug-dump-windows "{path}"')
             self.wait_for(category='message', loglevel=logging.INFO,
-                          message=f'Saved session {session}.')
-            data = session.read_text(encoding='utf-8')
+                          message=f'Dumped windows to {path}.')
+            data = path.read_text(encoding='utf-8')
 
-        self._log('\nCurrent session data:\n' + data)
+        self._log('\nCurrent windows:\n' + data)
         return utils.yaml_load(data)
 
     def get_content(self, plain=True):
@@ -914,14 +914,14 @@ class QuteProc(testprocess.Process):
             raise ValueError('Invalid response from qutebrowser: {}'
                              .format(message))
 
-    def compare_session(self, expected, *, flags="--with-private"):
+    def compare_session(self, expected):
         """Compare the current sessions against the given template.
 
         partial_compare is used, which means only the keys/values listed will
         be compared.
         """
         __tracebackhide__ = lambda e: e.errisinstance(pytest.fail.Exception)
-        data = self.get_session(flags=flags)
+        data = self.get_session()
         expected = yaml.load(expected, Loader=YamlLoader)
         outcome = testutils.partial_compare(data, expected)
         if not outcome:
