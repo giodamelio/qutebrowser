@@ -370,6 +370,7 @@ class Question(QObject):
         option: Boolean option to be set when answering always/never.
         options: For select, the rows to choose from, as (key, label,
                  description). The answer is the chosen row's key.
+        win_id: The window to show the question in, or None for every window.
         answer: The value the user entered (as password for user_pwd).
         is_aborted: Whether the question was aborted.
         interrupted: Whether the question was interrupted by another one.
@@ -403,6 +404,7 @@ class Question(QObject):
         self.url: str | None = None
         self.option: bool | None = None
         self.options: list[tuple[str, str, str]] = []
+        self.win_id: int | None = None
         self.answer: str | bool | None = None
         self.is_aborted = False
         self.interrupted = False
@@ -410,7 +412,7 @@ class Question(QObject):
     def __repr__(self) -> str:
         return utils.get_repr(self, title=self.title, text=self.text,
                               mode=self.mode, default=self.default,
-                              option=self.option)
+                              option=self.option, win_id=self.win_id)
 
     @pyqtSlot()
     def done(self) -> None:

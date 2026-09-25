@@ -113,6 +113,7 @@ def _build_question(title: str,
                     url: str | None = None,
                     option: bool | None = None,
                     options: Sequence[tuple[str, str, str]] | None = None,
+                    win_id: int | None = None,
                     ) -> usertypes.Question:
     """Common function for ask/ask_async."""
     question = usertypes.Question()
@@ -121,6 +122,7 @@ def _build_question(title: str,
     question.mode = mode
     question.default = default
     question.url = url
+    question.win_id = win_id
 
     if option is not None:
         if mode != usertypes.PromptMode.yesno:
@@ -150,6 +152,7 @@ def ask(*args: Any, **kwargs: Any) -> Any:
         default: The default value to display.
         text: Additional text to show
         options: For PromptMode.select, the rows as (key, label, description).
+        win_id: The window to ask in. By default every window shows it.
         option: The option for always/never question answers.
                 Only available with PromptMode.yesno.
         abort_on: A list of signals which abort the question if emitted.
@@ -177,6 +180,7 @@ def ask_async(title: str,
         default: The default value to display.
         text: Additional text to show.
         options: For PromptMode.select, the rows as (key, label, description).
+        win_id: The window to ask in. By default every window shows it.
     """
     question = _build_question(title, mode=mode, **kwargs)
     question.answered.connect(handler)
@@ -239,13 +243,15 @@ class GlobalMessageBridge(QObject):
 
                       IMPORTANT: Slots need to be connected to this signal via
                                  a Qt.ConnectionType.DirectConnection!
-        mode_left: Emitted when a keymode was left in any window.
+        mode_left: Emitted when a keymode was left in some window.
+                   arg 0: The KeyMode that was left.
+                   arg 1: The window it was left in.
     """
 
     show_message = pyqtSignal(MessageInfo)
     prompt_done = pyqtSignal(usertypes.KeyMode)
     ask_question = pyqtSignal(usertypes.Question, bool)
-    mode_left = pyqtSignal(usertypes.KeyMode)
+    mode_left = pyqtSignal(usertypes.KeyMode, int)
     clear_messages = pyqtSignal()
 
     def __init__(self, parent: QObject | None = None) -> None:
