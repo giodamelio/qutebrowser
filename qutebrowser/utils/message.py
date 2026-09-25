@@ -170,7 +170,7 @@ def ask(*args: Any, **kwargs: Any) -> Any:
 def ask_async(title: str,
               mode: usertypes.PromptMode,
               handler: Callable[[Any], None],
-              **kwargs: Any) -> None:
+              **kwargs: Any) -> usertypes.Question:
     """Ask an async question in the statusbar.
 
     Args:
@@ -181,11 +181,15 @@ def ask_async(title: str,
         text: Additional text to show.
         options: For PromptMode.select, the rows as (key, label, description).
         win_id: The window to ask in. By default every window shows it.
+
+    Return:
+        The question, so callers can handle cancelling.
     """
     question = _build_question(title, mode=mode, **kwargs)
     question.answered.connect(handler)
     question.completed.connect(question.deleteLater)
     global_bridge.ask(question, blocking=False)
+    return question
 
 
 _ActionType: TypeAlias = Callable[[], Any]

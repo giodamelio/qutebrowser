@@ -51,7 +51,7 @@ from qutebrowser.mainwindow import mainwindow, prompt, windowundo, windowsession
 from qutebrowser.misc import (ipc, savemanager, sessioncommands, crashsignal,
                               earlyinit, sql, cmdhistory, backendproblem,
                               objects, quitter, nativeeventfilter, containers,
-                              containercommands)
+                              containercommands, linkrouting)
 from qutebrowser.utils import (log, version, message, utils, urlutils, objreg,
                                resources, usertypes, standarddir,
                                error, qtutils, debug)
@@ -202,7 +202,7 @@ def _process_args(args):
     log.init.debug("Init finished after {}s".format(delta.total_seconds()))
 
 
-def process_pos_args(args, via_ipc=False, cwd=None, target_arg=None):
+def process_pos_args(args, via_ipc=False, cwd=None, target_arg=None):  # noqa: C901
     """Process positional commandline args.
 
     URLs to open have no prefix, commands to execute begin with a colon.
@@ -220,9 +220,17 @@ def process_pos_args(args, via_ipc=False, cwd=None, target_arg=None):
     command_target = config.val.new_instance_open_target
     if command_target in {'window', 'private-window'}:
         command_target = 'tab-silent'
+    if via_ipc and target_arg and target_arg != 'auto':
+        open_target = target_arg
+    else:
+        open_target = None
+    url_target = open_target or config.val.new_instance_open_target
 
     window: mainwindow.MainWindow | None = None
     private_session = None
+    # All URLs of one message share one picker (§7).
+    picked_urls: list[QUrl] | None = (
+        [] if via_ipc and linkrouting.needs_picker(url_target) else None)
 
     if via_ipc and (not args or args == ['']):
         window = mainwindow.get_window(via_ipc=via_ipc, target=new_window_target)
@@ -247,10 +255,6 @@ def process_pos_args(args, via_ipc=False, cwd=None, target_arg=None):
             log.init.debug("Empty argument")
             window = mainwindow.get_window(via_ipc=via_ipc, target=new_window_target)
         else:
-            if via_ipc and target_arg and target_arg != 'auto':
-                open_target = target_arg
-            else:
-                open_target = None
             if not cwd:  # could also be an empty string due to the PyQt signal
                 cwd = None
             try:
@@ -259,11 +263,17 @@ def process_pos_args(args, via_ipc=False, cwd=None, target_arg=None):
                 message.error("Error in startup argument '{}': {}".format(
                     cmd, e))
             else:
-                window = open_url(url, target=open_target, via_ipc=via_ipc,
-                                  private_session=private_session)
-                if window.session.private:
-                    # The rest of this message's URLs join the same session.
-                    private_session = window.session
+                if picked_urls is not None:
+                    picked_urls.append(url)
+                else:
+                    window = open_url(url, target=open_target, via_ipc=via_ipc,
+                                      private_session=private_session)
+                    if window.session.private:
+                        # The rest of this message's URLs join the same session.
+                        private_session = window.session
+
+    if picked_urls:
+        linkrouting.ask_and_open(picked_urls, target=url_target)
 
 
 def open_url(url, target=None, no_raise=False, via_ipc=True,
@@ -419,6 +429,9 @@ def on_focus_changed(_old, new):
 def open_desktopservices_url(url):
     """Handler to open a URL via QDesktopServices."""
     target = config.val.new_instance_open_target
+    if linkrouting.needs_picker(target):
+        linkrouting.ask_and_open([url], target=target)
+        return
     window = mainwindow.get_window(via_ipc=True, target=target)
     window.tabbed_browser.tabopen(url)
     window.show()

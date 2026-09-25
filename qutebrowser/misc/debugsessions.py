@@ -11,6 +11,7 @@ in a normal run.
 from typing import Any
 
 from qutebrowser.api import cmdutils
+from qutebrowser.commands import runners
 from qutebrowser.mainwindow import windowsessions
 from qutebrowser.misc import sessionfile, sessioncommands
 from qutebrowser.qt import sip
@@ -73,3 +74,17 @@ def debug_close_other_sessions() -> None:
         window = objreg.window_registry[win_id]
         if not sip.isdeleted(window) and window.session is not manager.default:
             window.close()
+
+
+@cmdutils.register(debug=True, maxsplit=1, no_cmd_split=True,
+                   no_replace_variables=True)
+def debug_run_in_window(window: int, command: str) -> None:
+    """Run a command in a given window, whichever window has focus.
+
+    Args:
+        window: The window's id, as :debug-dump-windows writes it.
+        command: The command to run, with its arguments.
+    """
+    if window not in objreg.window_registry:
+        raise cmdutils.CommandError(f"No window with id {window}")
+    runners.CommandRunner(window).run_safely(command)

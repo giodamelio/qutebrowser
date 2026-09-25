@@ -820,3 +820,58 @@ def take_tab_from_session(quteproc, index, name):
     windows = quteproc.get_session()['windows']
     win_id = next(win['win_id'] for win in windows if win['session'] == name)
     quteproc.send_cmd(f':tab-take {win_id}/{index}')
+
+
+def _session_window_id(quteproc, name):
+    """Get the id of the first window of a session."""
+    windows = quteproc.get_session()['windows']
+    return next(win['win_id'] for win in windows if win['session'] == name)
+
+
+def _run_in_window(quteproc, server, win_id, command):
+    command = command.replace('(port)', str(server.port))
+    quteproc.send_cmd(f':debug-run-in-window {win_id} {command.lstrip(":")}')
+
+
+def _prompt_window_id(quteproc):
+    """Wait for a question and get the window it is shown in."""
+    line = quteproc.wait_for(message='Asking question *')
+    match = re.search(r'win_id=(\d+)', line.message)
+    assert match is not None, line.message
+    return int(match.group(1))
+
+
+@bdd.when(bdd.parsers.parse('the window of session {name} runs {command}'))
+def run_in_session_window(quteproc, server, name, command):
+    """Run a command in the first window of a session, whichever has focus."""
+    _run_in_window(quteproc, server, _session_window_id(quteproc, name),
+                   command)
+
+
+@bdd.when(bdd.parsers.parse('the newest window runs {command}'))
+def run_in_newest_window(quteproc, server, command):
+    """Run a command in the window with the highest id."""
+    windows = quteproc.get_session()['windows']
+    _run_in_window(quteproc, server, max(win['win_id'] for win in windows),
+                   command)
+
+
+@bdd.when(bdd.parsers.parse('the prompt window runs {command}'))
+def run_in_prompt_window(quteproc, server, command):
+    """Run a command in the window showing the next question."""
+    _run_in_window(quteproc, server, _prompt_window_id(quteproc), command)
+
+
+@bdd.when(bdd.parsers.parse(
+    'the prompt window picks the window of session {name}'))
+def pick_session_window(quteproc, server, name):
+    """Answer the window picker with the first window of a session."""
+    target = _session_window_id(quteproc, name)
+    _run_in_window(quteproc, server, _prompt_window_id(quteproc),
+                   f'prompt-accept {target}')
+
+
+@bdd.then(bdd.parsers.parse('session {name} should have {count:d} windows'))
+def session_window_count(quteproc, name, count):
+    windows = quteproc.get_session()['windows']
+    assert sum(win['session'] == name for win in windows) == count
