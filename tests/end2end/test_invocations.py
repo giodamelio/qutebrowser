@@ -8,6 +8,7 @@ import os
 import pathlib
 import signal
 import configparser
+import sqlite3
 import subprocess
 import sys
 import logging
@@ -411,6 +412,69 @@ def test_session_survives_kill(request, quteproc_new, short_tmpdir):
               - history:
                 - url: http://localhost:*/data/numbers/3.txt
     """)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
+def _cookie_names(short_tmpdir, *path):
+    """Read the cookie names stored in a profile's Cookies database.
+
+    The table doesn't exist until the profile has stored its first cookie.
+    Opened read-only, so a wrong path raises instead of creating an empty
+    database that would make the caller's assertion pass vacuously.
+    """
+    db_path = pathlib.Path(str(short_tmpdir), *path)
+    con = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
+    try:
+        return {row[0] for row in con.execute('SELECT name FROM cookies')}
+    except sqlite3.OperationalError as e:
+        if 'no such table' not in str(e):
+            raise
+        return set()
+    finally:
+        con.close()
+
+
+def test_container_cookies_survive_restart(request, quteproc_new,
+                                           short_tmpdir):
+    """A container keeps its cookies across restarts, apart from default.
+
+    `persist-session` is always the last-opened window, both now and after
+    the restart (`default` opens first every time), so `:open` reliably
+    lands there without depending on window focus, which isn't reliable
+    under a headless X server. Isolation from `default` is checked by
+    reading its Cookies database directly instead of navigating there,
+    since making `default` the target window would need the same kind of
+    focus qutebrowser can't rely on here. `default` is made to load a page
+    too (targeted the same focus-free way, via first-opened), so its Cookies
+    database exists to be read from: otherwise "no cookies for default"
+    could vacuously mean "default never stored anything at all".
+    """
+    args = (_base_args(request.config) + ['--basedir', str(short_tmpdir)] +
+            ['-s', 'new_instance_open_target_window', 'last-opened'])
+    quteproc_new.start(args)
+    quteproc_new.send_cmd(':container-new persist-a')
+    quteproc_new.send_cmd(':session-new persist-session --container persist-a')
+    quteproc_new.wait_for(message='Saved session persist-session')
+    quteproc_new.open_path('cookies/set-custom?max_age=300', wait=False)
+    quteproc_new.wait_for_load_finished('cookies')
+
+    quteproc_new.set_setting('new_instance_open_target_window', 'first-opened')
+    quteproc_new.open_path('cookies', wait=False)
+    quteproc_new.wait_for_load_finished('cookies')
+
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    assert _cookie_names(short_tmpdir, 'data', 'webengine', 'Cookies') == set()
+    assert _cookie_names(short_tmpdir, 'data', 'containers', 'persist-a',
+                        'Cookies') == {'cookie'}
+
+    quteproc_new.start(args)
+    quteproc_new.open_path('cookies')
+    assert json.loads(quteproc_new.get_content()) == {
+        'cookies': {'cookie': 'value'}}
+
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()
 
