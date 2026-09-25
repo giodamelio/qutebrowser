@@ -119,7 +119,7 @@ def record(window: Any) -> None:
     if session.private:
         return
     session.closed_windows.insert(0, {
-        'closed_at': datetime.datetime.now(datetime.UTC).isoformat(
+        'closed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(
             timespec='milliseconds'),
         'window': sessionfile.serialize_window(window),
     })
@@ -147,7 +147,7 @@ def init() -> None:
     config.instance.changed.connect(_on_config_changed)
 
 
-_OLDEST = datetime.datetime.min.replace(tzinfo=datetime.UTC)
+_OLDEST = datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
 
 
 def _closed_at(entry: sessionfile.JsonType) -> datetime.datetime:
@@ -156,14 +156,15 @@ def _closed_at(entry: sessionfile.JsonType) -> datetime.datetime:
         closed_at = value
     else:
         try:
-            closed_at = datetime.datetime.fromisoformat(str(value))
+            closed_at = datetime.datetime.fromisoformat(
+                str(value).replace('Z', '+00:00'))
         except ValueError:
             log.sessions.warning(
                 f"Closed window with unreadable time {value!r} counts as the "
                 "oldest")
             return _OLDEST
     if closed_at.tzinfo is None:
-        closed_at = closed_at.replace(tzinfo=datetime.UTC)
+        closed_at = closed_at.replace(tzinfo=datetime.timezone.utc)
     return closed_at
 
 
@@ -206,6 +207,9 @@ def restore(session: windowsessions.Session, index: int) -> Any:
     try:
         window = sessionfile.restore_window(data, session)
     except sessionfile.SessionFileError as e:
+        # The half-built window that failed listed session on opening; undo
+        # that if it left the session listed with nothing to show for it.
+        windowsessions.manager.unlist(session)
         raise Error(str(e))
     del session.closed_windows[index]
     windowsessions.manager.mark_dirty(session)
