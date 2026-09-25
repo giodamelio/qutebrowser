@@ -27,7 +27,7 @@ from qutebrowser.qt.core import QProcess, QPoint
 from helpers import testutils
 from end2end.fixtures import quteprocess
 from qutebrowser.utils import qtutils, utils, version
-from qutebrowser.misc import checkpyver
+from qutebrowser.misc import checkpyver, ipc
 
 
 # For some reason (some floating point rounding differences?), color values are
@@ -1213,7 +1213,7 @@ def _files_containing(root: pathlib.Path, needle: bytes) -> list[str]:
                   if path.is_file() and needle in path.read_bytes())
 
 
-@pytest.mark.parametrize('ending', ['quit', 'kill', 'restart'])
+@pytest.mark.parametrize('ending', ['quit', 'kill', 'kill-open', 'restart'])
 def test_private_session_leaves_no_trace(request, quteproc_new, short_tmpdir,
                                          ending):
     """Nothing from a private session reaches disk."""
@@ -1227,34 +1227,53 @@ def test_private_session_leaves_no_trace(request, quteproc_new, short_tmpdir,
     # at all and a clean result would prove nothing.
     quteproc_new.open_path(f'data/hello.txt?{regular_token}')
     quteproc_new.open_path(f'data/hello2.txt?{private_token}', private=True)
-    quteproc_new.send_cmd(':session-close private-1')
-    quteproc_new.wait_for(message='removed: main-window')
+    if ending == 'kill-open':
+        # A crash usually happens with private windows still open. Waiting
+        # past the autosave's maximum delay lets anything written while
+        # browsing land first.
+        time.sleep(6)
+    else:
+        quteproc_new.send_cmd(':session-close private-1')
+        quteproc_new.wait_for(message='removed: main-window')
 
     if ending == 'quit':
         quteproc_new.send_cmd(':quit')
         quteproc_new.wait_for_quit()
-    elif ending == 'kill':
+    elif ending in ['kill', 'kill-open']:
         quteproc_new.exit_expected = True
         quteproc_new.proc.kill()
         quteproc_new.proc.waitForFinished()
     else:
+        socket = quteproc_new._ipc_socket
         quteproc_new.send_cmd(':restart')
         prefix = "New process PID: "
         line = quteproc_new.wait_for(message=f"{prefix}*")
         quteproc_new.wait_for_quit()
         pid = int(line.message.removeprefix(prefix))
-        os.kill(pid, signal.SIGTERM)
-        # The new process is the old one's child, not ours, so poll instead of
+        # The new process listens on the same IPC socket once it is up, so
+        # quitting it that way also proves it ran rather than dying early.
+        _wait_until(lambda: ipc.send_to_running_instance(socket, [':quit'], ''),
+                    f"Restarted process {pid} never accepted IPC")
+        # It is the old process's child, not ours, so poll instead of
         # waitpid() until it has finished writing and exited.
-        deadline = time.monotonic() + 20
-        while True:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                break
-            if time.monotonic() > deadline:
-                pytest.fail(f"Restarted process {pid} didn't exit")
-            time.sleep(0.1)
+        _wait_until(lambda: not _process_exists(pid),
+                    f"Restarted process {pid} didn't exit")
 
     assert _files_containing(basedir, regular_token.encode('ascii'))
     assert _files_containing(basedir, private_token.encode('ascii')) == []
+
+
+def _process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _wait_until(condition, failure: str, timeout: float = 20) -> None:
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if time.monotonic() > deadline:
+            pytest.fail(failure)
+        time.sleep(0.1)
