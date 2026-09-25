@@ -541,6 +541,7 @@ Feature: Saving and loading sessions
     And the window of session close-cancel runs :open -w about:blank
     And the window of session close-cancel runs :cmd-later 10 window-close
     And the prompt window runs :mode-leave
+    And I wait for "Cancelling closing of window *" in the log
     Then session close-cancel should have 2 windows
 
   Scenario: Closing a window without the prompt
@@ -577,3 +578,14 @@ Feature: Saving and loading sessions
           - url: about:blank
       - session: close-tab
       """
+
+  Scenario: Closing a session while one of its windows shows the close prompt
+    When I clear the log
+    And I run :session-new close-reentrant
+    And the window of session close-reentrant runs :open -w about:blank
+    And the window of session close-reentrant runs :cmd-later 10 close
+    And I wait for "Asking question *" in the log
+    And the newest window runs :session-close close-reentrant
+    And I wait for "removed: main-window" in the log
+    And I wait for "removed: main-window" in the log
+    Then session close-reentrant should have 0 windows
