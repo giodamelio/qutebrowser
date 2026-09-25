@@ -59,3 +59,18 @@ def test_set_register_stylesheet(delete, stylesheet_param, update, changed_optio
     expected = ('magenta' if delete or not update or changed_option != 'colors.hints.fg'
                 else 'yellow')
     assert obj.rendered_stylesheet == expected
+
+
+def test_set_stylesheet_switches_template(config_stub):
+    config_stub.val.colors.hints.fg = 'magenta'
+    config_stub.val.colors.hints.bg = 'blue'
+    obj = StyleObj()
+    observer = stylesheet.set_register(obj, "{{ conf.colors.hints.fg }}")
+
+    observer.set_stylesheet("{{ conf.colors.hints.bg }}")
+    assert obj.rendered_stylesheet == 'blue'
+
+    config_stub.set_obj('colors.hints.fg', 'yellow')
+    assert obj.rendered_stylesheet == 'blue'
+    config_stub.set_obj('colors.hints.bg', 'green')
+    assert obj.rendered_stylesheet == 'green'
