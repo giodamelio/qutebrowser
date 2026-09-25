@@ -26,15 +26,15 @@ def test_configcache_error_set(config_stub):
 
 def test_configcache_get(config_stub):
     assert len(config.cache._cache) == 0
-    assert not config.cache['auto_save.session']
+    assert not config.cache['completion.shrink']
     assert len(config.cache._cache) == 1
-    assert not config.cache['auto_save.session']
+    assert not config.cache['completion.shrink']
 
 
 def test_configcache_get_after_set(config_stub):
-    assert not config.cache['auto_save.session']
-    config_stub.val.auto_save.session = True
-    assert config.cache['auto_save.session']
+    assert not config.cache['completion.shrink']
+    config_stub.val.completion.shrink = True
+    assert config.cache['completion.shrink']
 
 
 def test_configcache_naive_benchmark(config_stub, benchmark):
