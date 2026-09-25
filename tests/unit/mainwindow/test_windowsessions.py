@@ -865,3 +865,23 @@ def test_rename_container_write_failure(manager, container_registry,
     monkeypatch.setattr(sessionfile, 'write', fail)
     assert manager.rename_container('old', 'new') == [('a', 'disk full')]
     assert manager.get('a').container == 'old'
+
+
+def test_window_closing_last_regular_window_with_private_open(
+        manager, windows, state_config, base_path):
+    window = open_window(manager, windows, manager.default, 1)
+    open_window(manager, windows, manager.new_private(), 2)
+    manager.window_closing(window)
+    assert open_list(state_config) == 'default'
+    assert saved(base_path, 'default') == [{'win': 1}]
+
+
+def test_window_closing_session_last_window_with_private_open(
+        manager, windows, state_config, base_path):
+    work = manager.new_session('work')
+    open_window(manager, windows, manager.default, 1)
+    window = open_window(manager, windows, work, 2)
+    open_window(manager, windows, manager.new_private(), 3)
+    manager.window_closing(window)
+    assert open_list(state_config) == 'default'
+    assert saved(base_path, 'work') == [{'win': 2}]

@@ -1177,3 +1177,30 @@ def test_restart(request, quteproc_new):
             # Already gone. Even if not documented, Windows seems to raise PermissionError
             # here...
             pass
+
+
+def test_last_regular_window_close_keeps_session_with_private_open(
+        request, quteproc_new, short_tmpdir):
+    """Private windows don't decide whether a regular session survives."""
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
+    quteproc_new.start(args)
+    quteproc_new.open_path('data/numbers/4.txt')
+    quteproc_new.open_path('about:blank', private=True)
+    # New windows don't get focus under the test X server, so this closes the
+    # regular window.
+    quteproc_new.send_cmd(':close')
+    quteproc_new.wait_for(message='removed: main-window')
+    quteproc_new.compare_session("""
+        windows:
+            - session: private-1
+              private: true
+    """)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    # With an empty open list the next start would open default anyway, so
+    # only the state file tells whether the session was kept open.
+    state = configparser.ConfigParser()
+    state.read(pathlib.Path(str(short_tmpdir), 'data', 'state'),
+               encoding='utf-8')
+    assert state['general']['open_sessions'] == 'default'
