@@ -48,6 +48,17 @@ Feature: Using completion
         When I run :cmd-set-text -s :bind X
         Then the completion model should be bind
 
+    Scenario: Using session completion
+        Given I set url.start_pages to ["about:blank"]
+        And I open data/hello.txt
+        And I run :session-new completion-hello
+        And I run :session-close completion-hello
+        When I run :cmd-set-text -s :session-open
+        And I run :completion-item-focus next
+        And I run :session-delete completion-hello
+        And I run :command-accept
+        Then the error "Session completion-hello not found!" should be shown
+
     Scenario: Using option completion
         When I run :cmd-set-text -s :set
         Then the completion model should be option

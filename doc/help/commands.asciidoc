@@ -115,6 +115,12 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<search-next,search-next>>|Continue the search to the ([count]th) next term.
 |<<search-prev,search-prev>>|Continue the search to the ([count]th) previous term.
 |<<selection-follow,selection-follow>>|Follow the selected text.
+|<<session-close,session-close>>|Save a session and close all of its windows.
+|<<session-delete,session-delete>>|Delete a closed session and its file.
+|<<session-move-window,session-move-window>>|Move the current window into another session.
+|<<session-new,session-new>>|Create a session and open it in a new window.
+|<<session-open,session-open>>|Open a session, or focus it if it is already open.
+|<<session-rename,session-rename>>|Rename a session and its file.
 |<<set,set>>|Set an option.
 |<<set-mark,set-mark>>|Set a mark at the current scroll position in the current tab.
 |<<spawn,spawn>>|Spawn an external command.
@@ -1278,6 +1284,65 @@ Follow the selected text.
 
 ==== optional arguments
 * +*-t*+, +*--tab*+: Load the selected link in a new tab.
+
+[[session-close]]
+=== session-close
+Syntax: +:session-close ['name']+
+
+Save a session and close all of its windows.
+
+==== positional arguments
+* +'name'+: The name of the session. Defaults to the current window's.
+
+[[session-delete]]
+=== session-delete
+Syntax: +:session-delete 'name'+
+
+Delete a closed session and its file.
+
+==== positional arguments
+* +'name'+: The name of the session.
+
+[[session-move-window]]
+=== session-move-window
+Syntax: +:session-move-window 'name'+
+
+Move the current window into another session.
+
+==== positional arguments
+* +'name'+: The session to move the window into.
+
+[[session-new]]
+=== session-new
+Syntax: +:session-new [*--container* 'container'] [*--private*] ['name']+
+
+Create a session and open it in a new window.
+
+==== positional arguments
+* +'name'+: The name of the new session.
+
+==== optional arguments
+* +*-c*+, +*--container*+: The container the session uses. Defaults to `default`.
+* +*-p*+, +*--private*+: Open a new private session with an automatic name instead.
+
+[[session-open]]
+=== session-open
+Syntax: +:session-open 'name'+
+
+Open a session, or focus it if it is already open.
+
+==== positional arguments
+* +'name'+: The name of the session.
+
+[[session-rename]]
+=== session-rename
+Syntax: +:session-rename 'old' 'new'+
+
+Rename a session and its file.
+
+==== positional arguments
+* +'old'+: The current name of the session.
+* +'new'+: The new name.
 
 [[set]]
 === set
