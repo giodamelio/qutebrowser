@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import logging
 import os
 
 import pytest
@@ -305,6 +306,19 @@ class TestTargetedQuestions:
             return queue.ask_question(question, blocking=True)
         finally:
             safety_timer.stop()
+
+    def test_asking_logs_win_id(self, setup, modeman_fake, caplog):
+        """The e2e "prompt window" steps (conftest._prompt_window_id) parse
+        win_id out of this "Asking question" log line, since Question's own
+        repr doesn't carry it (matching upstream's). Losing it here would
+        silently break every targeted-question e2e step.
+        """
+        queue, (_first, _second) = setup
+        with caplog.at_level(logging.DEBUG, 'prompt'):
+            queue.ask_question(self._question(1), blocking=False)
+        [line] = [r.message for r in caplog.records
+                 if r.message.startswith('Asking question')]
+        assert 'win_id=1' in line
 
     def test_shown_only_in_its_window(self, setup, modeman_fake):
         queue, (first, second) = setup

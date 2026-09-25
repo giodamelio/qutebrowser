@@ -103,8 +103,8 @@ Feature: Downloading things from a website.
         When I set downloads.remove_finished to 500
         And I open data/downloads/download.bin in a new window without waiting
         And I wait until the download is finished
-        And I run :close
-        And I wait 0.5s
+        And I run :window-close --no-prompt
+        And I wait for "removed: main-window" in the log
         Then no crash should happen
 
     # https://github.com/qutebrowser/qutebrowser/issues/2134
