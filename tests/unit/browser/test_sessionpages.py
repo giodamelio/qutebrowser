@@ -332,6 +332,15 @@ def test_sessions_page_without_set_aside_sessions(manager):
     assert 'id="set-aside"' not in html
 
 
+def test_sessions_page_set_aside_unlistable(manager, base_path, caplog):
+    base_path.rmdir()
+    base_path.write_text('not a directory', encoding='utf-8')
+    with caplog.at_level(logging.WARNING):
+        html = page(sessionpages.qute_sessions)
+    assert 'id="set-aside"' not in html
+    assert caplog.messages
+
+
 def test_sessions_page_counts_bad_tabs_field(manager, base_path):
     write_session(base_path, 'malformed',
                   windows=[{'tabs': None}, {'tabs': 'x'}, {},

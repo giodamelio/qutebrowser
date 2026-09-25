@@ -344,8 +344,13 @@ class SessionManager:
 
         Read from disk, so ones set aside by an earlier run are included.
         """
-        return sorted(path for path in self._base_path.iterdir()
-                      if path.name.endswith(_BROKEN_SUFFIX) and path.is_dir())
+        try:
+            return sorted(
+                path for path in self._base_path.iterdir()
+                if path.name.endswith(_BROKEN_SUFFIX) and path.is_dir())
+        except OSError as e:
+            log.sessions.warning(f"Failed to list {self._base_path}: {e}")
+            return []
 
     def get(self, name: str) -> Session:
         """Get a session by name, private or not."""
