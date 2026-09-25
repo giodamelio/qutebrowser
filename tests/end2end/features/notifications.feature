@@ -168,5 +168,6 @@ Feature: Notifications
 
     Scenario: Notification from qutebrowser itself
         When I run :debug-pyeval -q __import__('qutebrowser').browser.webengine.notification.notify('Links not opened', 'http://localhost/')
-        Then 1 notification should be presented
+        Then "pyeval output: None" should be logged
+        And 1 notification should be presented
         And the notification should have title "Links not opened"
