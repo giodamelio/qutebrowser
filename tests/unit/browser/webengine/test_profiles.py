@@ -90,11 +90,61 @@ def test_release_waits_for_pages(registry, teardowns):
 
     registry.release('private-1')
     assert registry.get('private-1') is None
-    assert teardowns == ['private-1']
+    assert teardowns == []
     assert not profile.deleted
 
     sip.delete(page)
     assert profile.deleted
+    assert teardowns == ['private-1']
+
+
+def test_acquire_revives_dying_profile(registry, teardowns):
+    profile = registry.acquire('work', private=False)
+    page = QObject()
+    registry.track_page('work', page)
+    registry.release('work')
+
+    assert registry.acquire('work', private=False) is profile
+    assert registry.get('work') is profile
+
+    sip.delete(page)
+    assert not profile.deleted
+    assert teardowns == []
+
+    registry.release('work')
+    assert profile.deleted
+    assert teardowns == ['work']
+
+
+def test_revived_profile_keeps_waiting_for_old_pages(registry):
+    profile = registry.acquire('work', private=False)
+    page = QObject()
+    registry.track_page('work', page)
+    registry.release('work')
+    registry.acquire('work', private=False)
+
+    registry.release('work')
+    assert not profile.deleted
+    sip.delete(page)
+    assert profile.deleted
+
+
+@pytest.mark.parametrize('state, expected', [
+    ('unknown', False),
+    ('live', True),
+    ('dying', True),
+    ('deleted', False),
+])
+def test_is_loaded(registry, state, expected):
+    if state != 'unknown':
+        registry.acquire('work', private=False)
+        page = QObject()
+        registry.track_page('work', page)
+        if state in ['dying', 'deleted']:
+            registry.release('work')
+        if state == 'deleted':
+            sip.delete(page)
+    assert registry.is_loaded('work') == expected
 
 
 def test_page_destroyed_before_release(registry):
