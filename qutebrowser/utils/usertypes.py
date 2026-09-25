@@ -412,7 +412,7 @@ class Question(QObject):
     def __repr__(self) -> str:
         return utils.get_repr(self, title=self.title, text=self.text,
                               mode=self.mode, default=self.default,
-                              option=self.option, win_id=self.win_id)
+                              option=self.option)
 
     @pyqtSlot()
     def done(self) -> None:
