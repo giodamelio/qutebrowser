@@ -660,3 +660,17 @@ def test_session_move_window_reports_failed_save(manager, windows):
     with pytest.raises(cmdutils.CommandError, match='work'):
         sessioncommands.session_move_window('default', win_id=2)
     assert moved.session is work
+
+
+def test_load_all_warns_about_invalid_names(base_path, message_mock, caplog):
+    base_path.mkdir(parents=True)
+    (base_path / 'Work.yml').write_text('windows: []\n')
+    (base_path / '_autosave.yml').write_text('windows: []\n')
+    mgr = windowsessions.SessionManager(base_path)
+
+    with caplog.at_level(logging.WARNING):
+        mgr.load_all()
+
+    assert [s.name for s in mgr.sessions()] == ['default']
+    msg = message_mock.getmsg(usertypes.MessageLevel.warning)
+    assert str(base_path / 'Work.yml') in msg.text

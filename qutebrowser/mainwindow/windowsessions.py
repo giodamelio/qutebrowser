@@ -178,8 +178,12 @@ class SessionManager:
             name = path.stem
             try:
                 validate_name(name)
-            except InvalidNameError:
-                log.sessions.debug(f"Ignoring {path}: not a valid session name")
+            except InvalidNameError as e:
+                if name.startswith('_'):
+                    # Upstream's internal sessions, like _autosave.
+                    log.sessions.debug(f"Ignoring {path}: not a valid session name")
+                else:
+                    message.warning(f"Skipping session file {path}: {e}")
                 continue
             try:
                 data = sessionfile.read(path)
