@@ -3095,6 +3095,16 @@ colors.statusbar.private.bg:
   type: QssColor
   desc: Background color of the statusbar in private browsing mode.
 
+colors.statusbar.private_session:
+  default: '#666666'
+  type: QtColor
+  desc: >-
+    Color of private sessions, used in place of a container's color.
+
+    The status bar takes it as its background in normal mode, and the
+    `session` and `container` widgets show it in every mode. Text on it is
+    black or white, whichever is easier to read.
+
 colors.statusbar.command.fg:
   default: white
   type: QssColor
