@@ -282,26 +282,37 @@ def _restore_tab(new_tab, data):  # noqa: C901
         if active:
             new_tab.title_changed.emit(histentry['title'])
 
-    try:
-        new_tab.history.private_api.load_items(entries)
-    except ValueError as e:
-        raise SessionFileError(e)
+    new_tab.history.private_api.load_items(entries)
 
 
 def restore_window(data: JsonType, session, *, show: bool = True):
     """Create a MainWindow in session from saved window data."""
     # mainwindow imports windowsessions, which imports this module.
-    from qutebrowser.mainwindow import mainwindow
-    window = mainwindow.MainWindow(geometry=data.get('geometry'), session=session)
+    from qutebrowser.mainwindow import mainwindow, windowsessions
+    geometry = data.get('geometry')
+    if geometry is not None and not isinstance(geometry, bytes):
+        raise SessionFileError(
+            f"Session {session.name} has a window with invalid geometry")
+    window = mainwindow.MainWindow(geometry=geometry, session=session)
     tabbed_browser = window.tabbed_browser
     tab_to_focus = None
-    for i, tab in enumerate(data['tabs']):
-        new_tab = tabbed_browser.tabopen(background=False)
-        _restore_tab(new_tab, tab)
-        if tab.get('active', False):
-            tab_to_focus = i
-        if new_tab.data.pinned:
-            new_tab.set_pinned(True)
+    try:
+        for i, tab in enumerate(data['tabs']):
+            new_tab = tabbed_browser.tabopen(background=False)
+            _restore_tab(new_tab, tab)
+            if tab.get('active', False):
+                tab_to_focus = i
+            if new_tab.data.pinned:
+                new_tab.set_pinned(True)
+    except (KeyError, TypeError, ValueError, AttributeError) as e:
+        # Not close(): that saves the session with this half-built window
+        # before the caller can move the session file aside.
+        windowsessions.manager.remove_window(session, window.win_id)
+        tabbed_browser.shutdown()
+        window.deleteLater()
+        raise SessionFileError(
+            f"Session {session.name} has an invalid window: "
+            f"{type(e).__name__}: {e}")
     if tab_to_focus is not None:
         tabbed_browser.widget.setCurrentIndex(tab_to_focus)
 
