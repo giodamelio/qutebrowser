@@ -14,6 +14,11 @@ from qutebrowser.misc import sessionfile
 from qutebrowser.utils import objreg, qtutils, usertypes
 
 
+@pytest.fixture(autouse=True)
+def fake_timers(monkeypatch, stubs):
+    monkeypatch.setattr(windowsessions.usertypes, 'Timer', stubs.FakeTimer)
+
+
 class FakeProfile:
 
     def __init__(self, key, private):
@@ -458,3 +463,53 @@ def test_rename_session_refuses_unreadable_file(base_path, message_mock,
         mgr.rename_session('other', 'work')
     assert (base_path / 'work.yml').read_text() == 'windows: [\n'
     assert mgr.get('other') is other
+
+
+def make_debouncer(calls):
+    return windowsessions._Debouncer(lambda: calls.append(1),
+                                     quiet_ms=1500, max_wait_ms=5000)
+
+
+def test_debouncer_fires_after_quiet_period():
+    calls = []
+    debouncer = make_debouncer(calls)
+    debouncer.trigger()
+    debouncer.trigger()
+    assert debouncer._quiet.isActive()
+    assert debouncer._max_wait.isActive()
+    assert debouncer._quiet.interval() == 1500
+    assert debouncer._max_wait.interval() == 5000
+
+    debouncer._quiet.timeout.emit()
+    assert calls == [1]
+    assert not debouncer._max_wait.isActive()
+
+
+def test_debouncer_fires_at_max_wait():
+    calls = []
+    debouncer = make_debouncer(calls)
+    debouncer.trigger()
+    debouncer._max_wait.timeout.emit()
+    assert calls == [1]
+    assert not debouncer._quiet.isActive()
+
+
+def test_debouncer_does_not_restart_max_wait(mocker):
+    debouncer = make_debouncer([])
+    debouncer.trigger()
+    start = mocker.patch.object(debouncer._max_wait, 'start')
+    debouncer.trigger()
+    start.assert_not_called()
+
+
+def test_mark_dirty_autosaves(manager, windows, base_path):
+    open_window(manager, windows, manager.default, 1)
+    manager._autosave._quiet.timeout.emit()
+    assert saved(base_path, 'default') == [{'win': 1}]
+
+
+def test_shutdown_cancels_autosave(manager, windows):
+    open_window(manager, windows, manager.default, 1)
+    manager.shutdown()
+    assert not manager._autosave._quiet.isActive()
+    assert not manager._autosave._max_wait.isActive()

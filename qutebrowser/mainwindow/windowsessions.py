@@ -20,7 +20,7 @@ from typing import Any, cast
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.config import configfiles
 from qutebrowser.misc import sessionfile
-from qutebrowser.utils import log, message, objreg, standarddir, utils
+from qutebrowser.utils import log, message, objreg, standarddir, usertypes, utils
 
 
 DEFAULT_NAME = 'default'
@@ -112,6 +112,36 @@ class Session:
         return bool(self.windows)
 
 
+class _Debouncer:
+
+    """Run a callback once changes pause, or after a maximum wait at the latest."""
+
+    def __init__(self, callback: Callable[[], None], *,
+                 quiet_ms: int, max_wait_ms: int) -> None:
+        self._callback = callback
+        self._quiet = usertypes.Timer(name='session-autosave-quiet')
+        self._quiet.setSingleShot(True)
+        self._quiet.setInterval(quiet_ms)
+        self._quiet.timeout.connect(self._fire)
+        self._max_wait = usertypes.Timer(name='session-autosave-max-wait')
+        self._max_wait.setSingleShot(True)
+        self._max_wait.setInterval(max_wait_ms)
+        self._max_wait.timeout.connect(self._fire)
+
+    def trigger(self) -> None:
+        self._quiet.start()
+        if not self._max_wait.isActive():
+            self._max_wait.start()
+
+    def cancel(self) -> None:
+        self._quiet.stop()
+        self._max_wait.stop()
+
+    def _fire(self) -> None:
+        self.cancel()
+        self._callback()
+
+
 class SessionManager:
 
     """Knows every session, which windows belong to it, and what is open."""
@@ -133,6 +163,8 @@ class SessionManager:
         self._closing: set[str] = set()
         self._unreadable: set[str] = set()
         self._shutting_down = False
+        self._autosave = _Debouncer(self.save_dirty, quiet_ms=1500,
+                                    max_wait_ms=5000)
 
     @property
     def default(self) -> Session:
@@ -330,6 +362,7 @@ class SessionManager:
         if session.private or self._shutting_down:
             return
         session.dirty = True
+        self._autosave.trigger()
 
     def save(self, session: Session, *, exclude: int | None = None) -> None:
         """Write a session's live windows to its file."""
@@ -352,6 +385,7 @@ class SessionManager:
             if session.windows and not session.private:
                 self._save_reporting(session)
         self._write_open_list()
+        self._autosave.cancel()
         self._shutting_down = True
 
     def _save_reporting(self, session: Session, *,
