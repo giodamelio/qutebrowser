@@ -215,3 +215,11 @@ def qute_sessions(_url: QUrl) -> tuple[str, str]:
     return 'text/html', jinja.render(
         'sessions.html', title='Sessions', saved=saved, private=private,
         unreadable=_unreadable_paths(manager))
+
+
+def open_page(url: str, win_id: int, *, tab: bool, bg: bool,
+              window: bool) -> None:
+    """Open one of these pages from a command, the way :open does."""
+    dispatcher = objreg.get('command-dispatcher', scope='window',
+                            window=win_id, from_command=True)
+    dispatcher.openurl(url, tab=tab, bg=bg, window=window)

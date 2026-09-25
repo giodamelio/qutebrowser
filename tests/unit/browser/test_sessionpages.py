@@ -19,7 +19,7 @@ import qutebrowser
 from qutebrowser.browser import sessionpages
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.mainwindow import windowsessions
-from qutebrowser.misc import sessionfile
+from qutebrowser.misc import containercommands, sessioncommands, sessionfile
 from qutebrowser.utils import objreg, qtutils
 
 
@@ -426,3 +426,19 @@ def test_sessions_page_closed_window_malformed_history(manager, base_path,
                       'session-badtab')
 
     assert '<td class="title"></td>' in section
+
+
+@pytest.mark.parametrize('module, name, url', [
+    (sessioncommands, 'session_list', 'qute://sessions/'),
+    (containercommands, 'container_list', 'qute://containers/'),
+])
+@pytest.mark.parametrize('flags', [
+    {}, {'tab': True}, {'bg': True}, {'window': True},
+])
+def test_list_commands_open_page(manager, windows, module, name, url, flags):
+    window = open_window(manager, windows, manager.default, 1)
+
+    getattr(module, name)(**flags, win_id=1)
+
+    assert window.dispatcher.opened == [
+        (url, {'tab': False, 'bg': False, 'window': False, **flags})]
