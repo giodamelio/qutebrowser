@@ -57,7 +57,7 @@ class ProfileRegistry:
 
     def acquire(self, key: str, *, private: bool) -> QWebEngineProfile:
         """Get the profile for key, creating it on first use."""
-        entry = self._live.get(key)
+        entry = self._live.get(key) or self._revive(key)
         if entry is None:
             if private and qtutils.is_single_process():
                 raise PrivateUnavailableError()
@@ -87,7 +87,6 @@ class ProfileRegistry:
             return
 
         del self._live[key]
-        entry.teardown()
         if entry.holds:
             # Deleting a profile before its pages makes Qt warn and can keep
             # the profile alive, and it cancels the profile's downloads.
@@ -96,6 +95,26 @@ class ProfileRegistry:
             self._dying.append(entry)
         else:
             self._delete(entry)
+
+    def _revive(self, key: str) -> _Entry | None:
+        """Reuse a released profile that is still waiting for its pages.
+
+        Creating a second profile on the same storage path instead would make
+        both use the same files at once.
+        """
+        for entry in self._dying:
+            if entry.key == key:
+                self._dying = [dying for dying in self._dying
+                               if dying is not entry]
+                self._live[key] = entry
+                log.misc.debug(f"Reviving profile {key!r}")
+                return entry
+        return None
+
+    def is_loaded(self, key: str) -> bool:
+        """Whether key has a profile, in use or waiting for its pages."""
+        return key in self._live or any(entry.key == key
+                                        for entry in self._dying)
 
     def get(self, key: str) -> QWebEngineProfile | None:
         entry = self._live.get(key)
@@ -141,6 +160,7 @@ class ProfileRegistry:
 
     def _delete(self, entry: _Entry) -> None:
         log.misc.debug(f"Deleting profile {entry.key!r}")
+        entry.teardown()
         entry.profile.deleteLater()
 
 
