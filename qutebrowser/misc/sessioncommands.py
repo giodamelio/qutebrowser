@@ -199,4 +199,8 @@ def session_move_window(name: str, *, win_id: int | None = None) -> None:
             f"Session {name} uses container {target.container}, but this "
             f"window uses {source.container}")
     open_before_joining(target)
-    windowsessions.manager.move_window(window, target)
+    try:
+        windowsessions.manager.move_window(window, target)
+    except sessionfile.SessionFileError as e:
+        raise cmdutils.CommandError(
+            f"Failed to save session {source.name}: {e}")

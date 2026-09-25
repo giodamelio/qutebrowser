@@ -11,6 +11,7 @@ import pytest
 
 pytest.importorskip('qutebrowser.qt.webenginecore')
 
+from qutebrowser.api import cmdutils
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.mainwindow import mainwindow, windowsessions, windowundo
 from qutebrowser.misc import sessioncommands, sessionfile
@@ -624,3 +625,38 @@ def test_resume_without_shutdown(manager, windows, base_path):
     open_window(manager, windows, manager.default, 1)
     manager.save_dirty()
     assert saved(base_path, 'default') == [{'win': 1}]
+
+
+def test_move_window_saves_target(manager, windows, base_path):
+    work = manager.new_session('work')
+    open_window(manager, windows, manager.default, 1)
+    moved = open_window(manager, windows, work, 2)
+    open_window(manager, windows, work, 3)
+
+    manager.move_window(moved, manager.default)
+    assert saved(base_path, 'default') == [{'win': 1}, {'win': 2}]
+
+
+def test_move_window_aborts_when_source_save_fails(manager, windows,
+                                                  base_path):
+    work = manager.new_session('work')
+    open_window(manager, windows, manager.default, 1)
+    moved = open_window(manager, windows, work, 2)
+    manager._unreadable.add('work')
+
+    with pytest.raises(sessionfile.SessionFileError):
+        manager.move_window(moved, manager.default)
+    assert moved.session is work
+    assert work.windows == {2}
+    assert manager.default.windows == {1}
+
+
+def test_session_move_window_reports_failed_save(manager, windows):
+    work = manager.new_session('work')
+    open_window(manager, windows, manager.default, 1)
+    moved = open_window(manager, windows, work, 2)
+    manager._unreadable.add('work')
+
+    with pytest.raises(cmdutils.CommandError, match='work'):
+        sessioncommands.session_move_window('default', win_id=2)
+    assert moved.session is work

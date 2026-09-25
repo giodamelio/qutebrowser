@@ -352,18 +352,24 @@ class SessionManager:
         self._closing.add(session.name)
 
     def move_window(self, window: Any, target: Session) -> None:
-        """Move a window into another session with the same profile."""
+        """Move a window into another session with the same profile.
+
+        Raises SessionFileError, without moving the window, when the source
+        can't be saved: its file would still list the window after the move.
+        """
         source = window.session
         assert source is not target, source
         assert not source.private and not target.private, (source, target)
         assert source.profile_key == target.profile_key, (source, target)
-        self._save_reporting(source, exclude=window.win_id)
+        self.save(source, exclude=window.win_id)
         source.windows.discard(window.win_id)
         window.session = target
         window.tabbed_browser.session = target
         for tab in window.tabbed_browser.widgets():
             tab.session = target
         self.add_window(target, window.win_id)
+        # A crash before the next autosave would leave the window in neither file.
+        self._save_reporting(target)
         if not source.windows:
             self._set_closed(source)
 
