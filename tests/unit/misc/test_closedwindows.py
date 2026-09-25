@@ -293,6 +293,17 @@ def test_newest_treats_unreadable_times_as_oldest(manager, caplog):
                                       entry(EARLY, 'b')]
     with caplog.at_level(logging.WARNING):
         assert closedwindows.newest() == (manager.default, 1)
+    assert "unreadable time 'yesterday'" in caplog.text
+
+
+def test_newest_accepts_a_trailing_z(manager, caplog):
+    manager.default.closed_windows = [
+        entry(EARLY, 'a'),
+        entry('2026-09-25T11:00:00.000Z', 'b'),
+    ]
+    with caplog.at_level(logging.WARNING):
+        assert closedwindows.newest() == (manager.default, 1)
+    assert not caplog.records
 
 
 def test_newest_ignores_private_sessions(manager):
@@ -341,6 +352,23 @@ def test_restore_keeps_entry_that_fails(manager, monkeypatch):
     with pytest.raises(closedwindows.Error, match='bad window'):
         closedwindows.restore(manager.default, 0)
     assert manager.default.closed_windows == [entry(LATE, 'a')]
+
+
+def test_restore_unlists_a_session_it_opened(manager, windows, monkeypatch,
+                                             state_config):
+    work = manager.new_session('work')
+    work.closed_windows = [entry(LATE, 'a')]
+
+    def fail(data, session, *, show=True):
+        open_window(manager, windows, session, 10)
+        manager.remove_window(session, 10)
+        del windows[10]
+        raise sessionfile.SessionFileError('bad window')
+
+    monkeypatch.setattr(sessionfile, 'restore_window', fail)
+    with pytest.raises(closedwindows.Error, match='bad window'):
+        closedwindows.restore(work, 0)
+    assert state_config['general'].get('open_sessions', '') == ''
 
 
 def test_session_restore_window(manager, windows, fake_restore):

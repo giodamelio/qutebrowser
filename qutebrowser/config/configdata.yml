@@ -2549,8 +2549,9 @@ tabs.undo_stack_size:
     name: Int
     minval: -1
     maxval: maxint
-  desc: Number of closed tabs (per window) and closed windows to remember for
-    :undo (-1 for no maximum).
+  desc: Number of closed tabs (per window) to remember for :undo (-1 for no
+    maximum). Closed windows are kept separately, capped by
+    `session.closed_windows_max`.
 
 tabs.wrap:
   default: true
