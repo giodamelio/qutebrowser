@@ -1,0 +1,44 @@
+{% extends "styled.html" %}
+
+{% block style %}
+{{super()}}
+h1 {
+    margin-bottom: 10px;
+}
+
+th {
+    text-align: left;
+}
+
+.swatch {
+    border: 1px solid #444;
+    display: inline-block;
+    height: 0.9em;
+    vertical-align: middle;
+    width: 0.9em;
+}
+
+.warning {
+    color: #c62828;
+}
+{% endblock %}
+
+{% block content %}
+<h1>Containers</h1>
+<p class="note">This page is read-only. Change containers with <span class="mono">:container-new</span>, <span class="mono">:container-rename</span> and <span class="mono">:container-delete</span>, or in config.py.</p>
+<table>
+    <thead>
+    <tr><th>Container</th><th>Source</th><th>Sessions</th><th>Profile</th></tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+    <tr id="container-{{ row.name }}">
+        <td class="name">{{ row.name }} <span class="swatch" style="background-color: {{ row.swatch }}"></span></td>
+        <td class="source">{{ row.source }}</td>
+        <td class="sessions">{% if row.unused %}<span class="warning">No session uses it. Delete it with <span class="mono">:container-delete {{ row.name }}</span></span>{% else %}{% for name, is_open in row.sessions %}{{ name }}{% if is_open %} (open){% endif %}{% if not loop.last %}, {% endif %}{% else %}none{% endfor %}{% endif %}</td>
+        <td class="loaded">{% if row.loaded %}loaded{% else %}not loaded{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
