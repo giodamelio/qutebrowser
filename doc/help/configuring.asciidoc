@@ -399,7 +399,7 @@ def read_xresources(prefix):
     return props
 
 xresources = read_xresources('*')
-c.colors.statusbar.normal.bg = xresources['*.background']
+c.colors.completion.even.bg = xresources['*.background']
 ----
 
 Pre-built colorschemes

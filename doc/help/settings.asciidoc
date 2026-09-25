@@ -73,16 +73,11 @@
 |<<colors.statusbar.caret.selection.fg,colors.statusbar.caret.selection.fg>>|Foreground color of the statusbar in caret mode with a selection.
 |<<colors.statusbar.command.bg,colors.statusbar.command.bg>>|Background color of the statusbar in command mode.
 |<<colors.statusbar.command.fg,colors.statusbar.command.fg>>|Foreground color of the statusbar in command mode.
-|<<colors.statusbar.command.private.bg,colors.statusbar.command.private.bg>>|Background color of the statusbar in private browsing + command mode.
-|<<colors.statusbar.command.private.fg,colors.statusbar.command.private.fg>>|Foreground color of the statusbar in private browsing + command mode.
 |<<colors.statusbar.insert.bg,colors.statusbar.insert.bg>>|Background color of the statusbar in insert mode.
 |<<colors.statusbar.insert.fg,colors.statusbar.insert.fg>>|Foreground color of the statusbar in insert mode.
-|<<colors.statusbar.normal.bg,colors.statusbar.normal.bg>>|Background color of the statusbar.
-|<<colors.statusbar.normal.fg,colors.statusbar.normal.fg>>|Foreground color of the statusbar.
 |<<colors.statusbar.passthrough.bg,colors.statusbar.passthrough.bg>>|Background color of the statusbar in passthrough mode.
 |<<colors.statusbar.passthrough.fg,colors.statusbar.passthrough.fg>>|Foreground color of the statusbar in passthrough mode.
-|<<colors.statusbar.private.bg,colors.statusbar.private.bg>>|Background color of the statusbar in private browsing mode.
-|<<colors.statusbar.private.fg,colors.statusbar.private.fg>>|Foreground color of the statusbar in private browsing mode.
+|<<colors.statusbar.private_session,colors.statusbar.private_session>>|Color of private sessions, used in place of a container's color.
 |<<colors.statusbar.progress.bg,colors.statusbar.progress.bg>>|Background color of the progress bar.
 |<<colors.statusbar.url.error.fg,colors.statusbar.url.error.fg>>|Foreground color of the URL in the statusbar on error.
 |<<colors.statusbar.url.fg,colors.statusbar.url.fg>>|Default foreground color of the URL in the statusbar.
@@ -137,7 +132,6 @@
 |<<completion.use_best_match,completion.use_best_match>>|Execute the best-matching command on a partial match.
 |<<completion.web_history.exclude,completion.web_history.exclude>>|A list of patterns which should not be shown in the history.
 |<<completion.web_history.max_items,completion.web_history.max_items>>|Number of URLs to show in the web history.
-|<<confirm_quit,confirm_quit>>|Require a confirmation before quitting the application.
 |<<containers,containers>>|Containers that sessions can use, each with its own cookies, cache and site data.
 |<<content.autoplay,content.autoplay>>|Automatically start playing `<video>` elements.
 |<<content.blocking.adblock.lists,content.blocking.adblock.lists>>|List of URLs to ABP-style adblocking rulesets.
@@ -311,6 +305,7 @@
 |<<search.incremental,search.incremental>>|Find text on a page incrementally, renewing the search for each typed character.
 |<<search.wrap,search.wrap>>|Wrap around at the top and bottom of the page when advancing through text matches using `:search-next` and `:search-prev`.
 |<<search.wrap_messages,search.wrap_messages>>|Display messages when advancing through text matches at the top and bottom of the page, e.g. `Search hit TOP`.
+|<<session.closed_windows_max,session.closed_windows_max>>|Maximum number of closed windows each session keeps for `:undo --window` and `:session-restore-window`.
 |<<session.lazy_restore,session.lazy_restore>>|Load a restored tab as soon as it takes focus.
 |<<spellcheck.languages,spellcheck.languages>>|Languages to use for spell checking.
 |<<statusbar.padding,statusbar.padding>>|Padding (in pixels) for the statusbar.
@@ -346,7 +341,7 @@
 |<<tabs.title.format,tabs.title.format>>|Format to use for the tab title.
 |<<tabs.title.format_pinned,tabs.title.format_pinned>>|Format to use for the tab title for pinned tabs. The same placeholders like for `tabs.title.format` are defined.
 |<<tabs.tooltips,tabs.tooltips>>|Show tooltips on tabs.
-|<<tabs.undo_stack_size,tabs.undo_stack_size>>|Number of closed tabs (per window) and closed windows to remember for :undo (-1 for no maximum).
+|<<tabs.undo_stack_size,tabs.undo_stack_size>>|Number of closed tabs (per window) to remember for :undo (-1 for no maximum). Closed windows are kept separately, capped by `session.closed_windows_max`.
 |<<tabs.width,tabs.width>>|Width (in pixels or as percentage of the window) of the tab bar if it's vertical.
 |<<tabs.wrap,tabs.wrap>>|Wrap when changing tabs.
 |<<url.auto_search,url.auto_search>>|What search to start when something else than a URL is entered.
@@ -1293,22 +1288,6 @@ Type: <<types,QssColor>>
 
 Default: +pass:[white]+
 
-[[colors.statusbar.command.private.bg]]
-=== colors.statusbar.command.private.bg
-Background color of the statusbar in private browsing + command mode.
-
-Type: <<types,QssColor>>
-
-Default: +pass:[darkslategray]+
-
-[[colors.statusbar.command.private.fg]]
-=== colors.statusbar.command.private.fg
-Foreground color of the statusbar in private browsing + command mode.
-
-Type: <<types,QssColor>>
-
-Default: +pass:[white]+
-
 [[colors.statusbar.insert.bg]]
 === colors.statusbar.insert.bg
 Background color of the statusbar in insert mode.
@@ -1320,22 +1299,6 @@ Default: +pass:[darkgreen]+
 [[colors.statusbar.insert.fg]]
 === colors.statusbar.insert.fg
 Foreground color of the statusbar in insert mode.
-
-Type: <<types,QssColor>>
-
-Default: +pass:[white]+
-
-[[colors.statusbar.normal.bg]]
-=== colors.statusbar.normal.bg
-Background color of the statusbar.
-
-Type: <<types,QssColor>>
-
-Default: +pass:[black]+
-
-[[colors.statusbar.normal.fg]]
-=== colors.statusbar.normal.fg
-Foreground color of the statusbar.
 
 Type: <<types,QssColor>>
 
@@ -1357,21 +1320,14 @@ Type: <<types,QssColor>>
 
 Default: +pass:[white]+
 
-[[colors.statusbar.private.bg]]
-=== colors.statusbar.private.bg
-Background color of the statusbar in private browsing mode.
+[[colors.statusbar.private_session]]
+=== colors.statusbar.private_session
+Color of private sessions, used in place of a container's color.
+The status bar takes it as its background in normal mode, and the `session` and `container` widgets show it in every mode. Text on it is black or white, whichever is easier to read.
 
-Type: <<types,QssColor>>
+Type: <<types,QtColor>>
 
 Default: +pass:[#666666]+
-
-[[colors.statusbar.private.fg]]
-=== colors.statusbar.private.fg
-Foreground color of the statusbar in private browsing mode.
-
-Type: <<types,QssColor>>
-
-Default: +pass:[white]+
 
 [[colors.statusbar.progress.bg]]
 === colors.statusbar.progress.bg
@@ -1913,28 +1869,12 @@ Type: <<types,Int>>
 
 Default: +pass:[-1]+
 
-[[confirm_quit]]
-=== confirm_quit
-Require a confirmation before quitting the application.
-
-Type: <<types,ConfirmQuit>>
-
-Valid values:
-
- * +always+: Always show a confirmation.
- * +multiple-tabs+: Show a confirmation if multiple tabs are opened.
- * +downloads+: Show a confirmation if downloads are running
- * +never+: Never show a confirmation.
-
-Default: 
-
-- +pass:[never]+
-
 [[containers]]
 === containers
 Containers that sessions can use, each with its own cookies, cache and site data.
 Each key is a container name: lowercase letters, digits, `_` and `-`, starting with a letter or digit, and not starting with `private-`. Each value is a mapping with a required `color`, in any format the `colors.*` settings accept.
 The `default` container always exists; list it here only to change its color. Containers created with `:container-new` are kept separately and don't appear here. A container defined here wins over one of the same name created with `:container-new`.
+A window's status bar takes its container's color as its background in normal mode, with black or white text, whichever is easier to read. The URL keeps its `colors.statusbar.url.*` colors, so pick container colors it stays readable on.
 
 Type: <<types,Dict>>
 
@@ -4103,6 +4043,15 @@ Type: <<types,Bool>>
 
 Default: +pass:[true]+
 
+[[session.closed_windows_max]]
+=== session.closed_windows_max
+Maximum number of closed windows each session keeps for `:undo --window` and `:session-restore-window`.
+Older ones are dropped. Private sessions keep none.
+
+Type: <<types,Int>>
+
+Default: +pass:[10]+
+
 [[session.lazy_restore]]
 === session.lazy_restore
 Load a restored tab as soon as it takes focus.
@@ -4217,6 +4166,8 @@ Type: <<types,List of StatusbarWidget>>
 Valid values:
 
  * +url+: Current page URL.
+ * +session+: Name of the window's session.
+ * +container+: Name of the window's container, or `(private)` in a private session.
  * +scroll+: Percentage of the current page position like `10%`.
  * +scroll_raw+: Raw percentage of the current page position like `10`.
  * +history+: Display an arrow when possible to go back/forward in history.
@@ -4229,6 +4180,8 @@ Valid values:
 
 Default: 
 
+- +pass:[session]+
+- +pass:[container]+
 - +pass:[keypress]+
 - +pass:[search_match]+
 - +pass:[url]+
@@ -4564,6 +4517,9 @@ The following placeholders are defined:
 * `{host}`: Host of the current web page.
 * `{backend}`: Either `webkit` or `webengine`
 * `{private}`: Indicates when private mode is enabled.
+* `{session}`: Name of the window's session.
+* `{container}`: Name of the window's container, empty in a private
+  session.
 * `{current_url}`: URL of the current web page.
 * `{protocol}`: Protocol (http/https/...) of the current web page.
 * `{audio}`: Indicator for audio/mute status.
@@ -4592,7 +4548,7 @@ Default: +pass:[true]+
 
 [[tabs.undo_stack_size]]
 === tabs.undo_stack_size
-Number of closed tabs (per window) and closed windows to remember for :undo (-1 for no maximum).
+Number of closed tabs (per window) to remember for :undo (-1 for no maximum). Closed windows are kept separately, capped by `session.closed_windows_max`.
 
 Type: <<types,Int>>
 
