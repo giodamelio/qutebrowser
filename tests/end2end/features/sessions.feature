@@ -511,3 +511,69 @@ Feature: Saving and loading sessions
           - url: about:blank
           - url: http://localhost:*/data/numbers/2.txt
       """
+
+  # Closing one window of a session
+
+  Scenario: Closing one of two windows and choosing this window
+    When I clear the log
+    And I run :session-new close-one
+    And the window of session close-one runs :open -w http://localhost:(port)/data/numbers/2.txt
+    And I wait until data/numbers/2.txt is loaded
+    And the window of session close-one runs :cmd-later 10 window-close
+    And the prompt window runs :prompt-accept window
+    And I wait for "removed: main-window" in the log
+    Then session close-one should have 1 windows
+
+  Scenario: Closing one of two windows and choosing the whole session
+    When I clear the log
+    And I run :session-new close-all
+    And the window of session close-all runs :open -w about:blank
+    And the window of session close-all runs :cmd-later 10 window-close
+    And the prompt window runs :prompt-accept session
+    And I wait for "removed: main-window" in the log
+    And I wait for "removed: main-window" in the log
+    And I run :session-open close-all
+    Then session close-all should have 2 windows
+
+  Scenario: Closing one of two windows and cancelling
+    When I clear the log
+    And I run :session-new close-cancel
+    And the window of session close-cancel runs :open -w about:blank
+    And the window of session close-cancel runs :cmd-later 10 window-close
+    And the prompt window runs :mode-leave
+    Then session close-cancel should have 2 windows
+
+  Scenario: Closing a window without the prompt
+    When I clear the log
+    And I run :session-new close-np
+    And the window of session close-np runs :open -w about:blank
+    And the window of session close-np runs :window-close --no-prompt
+    And I wait for "removed: main-window" in the log
+    Then "Asking question *" should not be logged
+    And session close-np should have 1 windows
+
+  Scenario: Closing the only window of a session doesn't ask
+    When I clear the log
+    And I run :session-new close-single
+    And the window of session close-single runs :close
+    And I wait for "removed: main-window" in the log
+    Then "Asking question *" should not be logged
+    And session close-single should have 0 windows
+
+  Scenario: Cancelling after closing the last tab keeps the tab
+    When I clear the log
+    And I set tabs.last_close to close
+    And I run :session-new close-tab
+    And the window of session close-tab runs :open -w about:blank
+    And the window of session close-tab runs :cmd-later 10 tab-close
+    And the prompt window runs :mode-leave
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+      - session: close-tab
+        tabs:
+        - history:
+          - url: about:blank
+      - session: close-tab
+      """

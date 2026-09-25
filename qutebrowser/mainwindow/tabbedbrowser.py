@@ -24,7 +24,7 @@ from qutebrowser.mainwindow import tabwidget, mainwindow, windowsessions
 from qutebrowser.browser import signalfilter, browsertab, history
 from qutebrowser.utils import (log, usertypes, utils, qtutils,
                                urlutils, message, jinja, version)
-from qutebrowser.misc import quitter, objects
+from qutebrowser.misc import quitter, objects, closedwindows
 
 
 @dataclasses.dataclass
@@ -459,6 +459,17 @@ class TabbedBrowser(QWidget):
         else:
             yes_action()
 
+    @staticmethod
+    def _last_tab_close_choice(window, transfer):
+        """How the window closes when its last tab does, unless transferring."""
+        if transfer:
+            return closedwindows.CloseChoice.plain
+        # Every tab is a window here, so asking would ask on every tab close.
+        preset = (closedwindows.CloseChoice.window
+                 if config.val.tabs.tabs_are_windows else None)
+        # Asked before the tab goes, so cancelling leaves the window as it was.
+        return closedwindows.close_choice(window, preset)
+
     def close_tab(self, tab, *, add_undo=True, new_undo=True, transfer=False):
         """Close a tab.
 
@@ -477,6 +488,18 @@ class TabbedBrowser(QWidget):
 
         if last_close == 'ignore' and count == 1:
             return
+
+        if count == 1 and last_close == 'close':
+            window = self.window()
+            choice = self._last_tab_close_choice(window, transfer)
+            if choice is closedwindows.CloseChoice.cancel:
+                return
+            window.close_choice = choice
+            if choice is not closedwindows.CloseChoice.plain:
+                # The window closes with its tab, so its history entry keeps
+                # it.
+                self.close_window.emit()
+                return
 
         self._remove_tab(tab, add_undo=add_undo, new_undo=new_undo)
         self._mark_session_dirty()

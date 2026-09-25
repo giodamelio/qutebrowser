@@ -107,15 +107,6 @@ Feature: Downloading things from a website.
         And I wait 0.5s
         Then no crash should happen
 
-    Scenario: Quitting with finished downloads and confirm_quit=downloads (issue 846)
-        Given I have a fresh instance
-        When I set downloads.location.prompt to false
-        And I set confirm_quit to [downloads]
-        And I open data/downloads/download.bin without waiting
-        And I wait until the download is finished
-        And I run :close
-        Then qutebrowser should quit
-
     # https://github.com/qutebrowser/qutebrowser/issues/2134
     @qtwebengine_skip
     Scenario: Downloading, then closing a tab

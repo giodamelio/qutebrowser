@@ -1277,3 +1277,23 @@ def _wait_until(condition, failure: str, timeout: float = 20) -> None:
         if time.monotonic() > deadline:
             pytest.fail(failure)
         time.sleep(0.1)
+
+
+def test_quit_does_not_ask_about_closing_windows(request, quteproc_new,
+                                                 short_tmpdir):
+    """Quitting saves every window as-is instead of asking per window."""
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
+    quteproc_new.start(args)
+    quteproc_new.open_url('about:blank', new_window=True)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+    quteproc_new.ensure_not_logged(message='Asking question *')
+
+    quteproc_new.start(args)
+    quteproc_new.compare_session("""
+        windows:
+            - session: default
+            - session: default
+    """)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()

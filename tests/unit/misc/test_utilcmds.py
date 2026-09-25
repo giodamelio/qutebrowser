@@ -7,7 +7,7 @@
 import pytest
 from qutebrowser.qt.core import QUrl
 
-from qutebrowser.misc import utilcmds
+from qutebrowser.misc import closedwindows, utilcmds
 from qutebrowser.api import cmdutils
 from qutebrowser.utils import objreg
 
@@ -49,6 +49,7 @@ def test_window_only(mocker, monkeypatch):
     assert not test_windows[0].closed
     assert not test_windows[1].closed
     assert test_windows[2].closed
+    assert test_windows[2].close_choice is closedwindows.CloseChoice.window
 
 
 @pytest.fixture

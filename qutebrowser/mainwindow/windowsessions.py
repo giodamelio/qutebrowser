@@ -229,6 +229,11 @@ class SessionManager:
     def default(self) -> Session:
         return self._sessions[DEFAULT_NAME]
 
+    @property
+    def shutting_down(self) -> bool:
+        """Whether sessions were saved for quitting or restarting."""
+        return self._shutting_down
+
     def load_all(self) -> None:
         """Read every session file, skipping and reporting broken ones."""
         self._base_path.mkdir(parents=True, exist_ok=True)
