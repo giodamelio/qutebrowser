@@ -118,8 +118,15 @@ def open_list(state_config):
     return state_config['general'].get('open_sessions', '')
 
 
+def session_file(base_path, name):
+    """Get the session.yml of a session directory, creating the directory."""
+    directory = base_path / name
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / 'session.yml'
+
+
 def saved(base_path, name):
-    return sessionfile.read(base_path / f'{name}.yml').windows
+    return sessionfile.read(session_file(base_path, name)).windows
 
 
 def test_default_session(manager):
@@ -275,16 +282,19 @@ def test_validate_new_name_rejects_default():
         windowsessions.validate_new_name('default')
 
 
-def test_load_all_tolerates_upstream_files(registry, base_path, state_config,
-                                           fake_save_manager, windows,
-                                           message_mock, caplog):
-    (base_path / 'before-qt-515').mkdir(parents=True)
-    (base_path / 'before-qt-515' / 'old.yml').write_text('windows: []\n')
-    (base_path / '_autosave.yml').write_text('windows: []\n')
-    (base_path / 'work.yml').write_text('container: default\nwindows:\n- tabs: []\n')
-    (base_path / 'legacy.yml').write_text(
+def test_load_all_reads_session_directories(registry, base_path, state_config,
+                                            fake_save_manager, windows,
+                                            message_mock, caplog):
+    session_file(base_path, 'work').write_text(
+        'container: default\nwindows:\n- tabs: []\n')
+    session_file(base_path, 'legacy').write_text(
         'windows:\n- private: true\n  tabs: []\n- tabs: []\n')
-    (base_path / 'broken.yml').write_text('windows: [\n')
+    session_file(base_path, 'broken').write_text('windows: [\n')
+    session_file(base_path, 'gone.broken').write_text('windows: []\n')
+    (base_path / 'old.yml').write_text('windows: []\n')
+    (base_path / 'before-qt-515').mkdir()
+    (base_path / 'before-qt-515' / 'old.yml').write_text('windows: []\n')
+    (base_path / 'empty').mkdir()
     mgr = windowsessions.SessionManager(base_path)
 
     with caplog.at_level(logging.ERROR):
@@ -295,6 +305,7 @@ def test_load_all_tolerates_upstream_files(registry, base_path, state_config,
     assert mgr.get('default').saved_windows == []
     msg = message_mock.getmsg(usertypes.MessageLevel.error)
     assert msg.text.startswith('Skipping session broken:')
+    assert mgr.unreadable_paths() == [base_path / 'broken']
 
 
 def test_saved_open_names(manager, state_config):
@@ -310,7 +321,7 @@ def test_get_unknown(manager):
 
 def test_new_session_writes_file(manager, base_path):
     session = manager.new_session('work')
-    assert sessionfile.read(base_path / 'work.yml') == sessionfile.SessionData()
+    assert sessionfile.read(session_file(base_path, 'work')) == sessionfile.SessionData()
     assert manager.get('work') is session
     assert not session.is_open
 
@@ -387,7 +398,7 @@ def test_window_closing_private_does_nothing(manager, windows, base_path):
     open_window(manager, windows, manager.default, 1)
     window = open_window(manager, windows, manager.new_private(), 2)
     manager.window_closing(window)
-    assert not (base_path / 'private-1.yml').exists()
+    assert not (base_path / 'private-1').exists()
 
 
 def test_begin_close(manager, windows, state_config, base_path):
@@ -406,10 +417,10 @@ def test_begin_close(manager, windows, state_config, base_path):
 
 def test_save_dirty_skips_sessions_without_windows(manager, base_path):
     work = manager.new_session('work')
-    (base_path / 'work.yml').unlink()
+    (session_file(base_path, 'work')).unlink()
     work.dirty = True
     manager.save_dirty()
-    assert not (base_path / 'work.yml').exists()
+    assert not (session_file(base_path, 'work')).exists()
 
 
 def test_save_dirty_saves_open_sessions(manager, windows, base_path):
@@ -431,8 +442,11 @@ def test_shutdown_saves_and_stops_marking(manager, windows, base_path):
 
 def test_delete_session(manager, windows, base_path):
     manager.new_session('work')
+    history = base_path / 'work' / 'history'
+    history.mkdir(exist_ok=True)
+    (history / f"{'a' * 32}.bin").write_bytes(b'history')
     manager.delete_session('work')
-    assert not (base_path / 'work.yml').exists()
+    assert not (base_path / 'work').exists()
     with pytest.raises(windowsessions.UnknownSessionError):
         manager.get('work')
 
@@ -451,12 +465,15 @@ def test_delete_session_refused(manager, windows):
 def test_rename_session(manager, windows, state_config, base_path):
     work = manager.new_session('work')
     open_window(manager, windows, work, 1)
+    (base_path / 'work' / 'history').mkdir(exist_ok=True)
+    (base_path / 'work' / 'history' / f"{'a' * 32}.bin").write_bytes(b'x')
     manager.rename_session('work', 'play')
-    assert (base_path / 'play.yml').exists()
-    assert not (base_path / 'work.yml').exists()
+    assert (base_path / 'play' / 'session.yml').exists()
+    assert not (base_path / 'work').exists()
     assert manager.get('play') is work
     assert work.name == 'play'
     assert open_list(state_config) == 'play'
+    assert (base_path / 'play' / 'history' / f"{'a' * 32}.bin").read_bytes() == b'x'
 
 
 def test_rename_session_refused(manager):
@@ -494,19 +511,19 @@ def test_load_all_moves_broken_default_aside(base_path, state_config,
                                              fake_save_manager, windows,
                                              message_mock, caplog):
     base_path.mkdir(parents=True)
-    (base_path / 'default.yml').write_text('windows: [\n')
+    (session_file(base_path, 'default')).write_text('windows: [\n')
     mgr = windowsessions.SessionManager(
         base_path, serialize_window=lambda window: {'win': window.win_id})
 
     with caplog.at_level(logging.ERROR):
         mgr.load_all()
 
-    broken = base_path / 'default.yml.broken'
+    broken = session_file(base_path, 'default.broken')
     assert broken.read_text() == 'windows: [\n'
-    assert not (base_path / 'default.yml').exists()
+    assert not (session_file(base_path, 'default')).exists()
     msg = message_mock.getmsg(usertypes.MessageLevel.error)
     assert msg.text.startswith('Skipping session default:')
-    assert str(broken) in msg.text
+    assert str(broken.parent) in msg.text
 
     open_window(mgr, windows, mgr.default, 1)
     mgr.save_dirty()
@@ -519,19 +536,19 @@ def test_load_all_reports_default_broken_conflict(base_path, state_config,
                                                   caplog):
 
     base_path.mkdir(parents=True)
-    (base_path / 'default.yml').write_text('windows: [\n')
-    (base_path / 'default.yml.broken').write_text('already here\n')
+    (session_file(base_path, 'default')).write_text('windows: [\n')
+    (session_file(base_path, 'default.broken')).write_text('already here\n')
     mgr = windowsessions.SessionManager(
         base_path, serialize_window=lambda window: {'win': window.win_id})
 
     with caplog.at_level(logging.ERROR):
         mgr.load_all()
 
-    assert (base_path / 'default.yml').read_text() == 'windows: [\n'
-    assert (base_path / 'default.yml.broken').read_text() == 'already here\n'
+    assert (session_file(base_path, 'default')).read_text() == 'windows: [\n'
+    assert (session_file(base_path, 'default.broken')).read_text() == 'already here\n'
     msg = message_mock.getmsg(usertypes.MessageLevel.error)
-    assert 'default.yml' in msg.text
-    assert 'default.yml.broken' in msg.text
+    assert str(base_path / 'default') in msg.text
+    assert str(base_path / 'default.broken') in msg.text
 
     with pytest.raises(sessionfile.SessionFileError):
         mgr.save(mgr.default)
@@ -539,28 +556,28 @@ def test_load_all_reports_default_broken_conflict(base_path, state_config,
 
 def test_new_session_refuses_unreadable_file(base_path, message_mock, caplog):
     base_path.mkdir(parents=True)
-    (base_path / 'work.yml').write_text('windows: [\n')
+    (session_file(base_path, 'work')).write_text('windows: [\n')
     mgr = windowsessions.SessionManager(base_path)
     with caplog.at_level(logging.ERROR):
         mgr.load_all()
 
-    with pytest.raises(windowsessions.SessionExistsError, match=r'work\.yml'):
+    with pytest.raises(windowsessions.SessionExistsError, match=r"sessions/work exists but can't be read"):
         mgr.new_session('work')
-    assert (base_path / 'work.yml').read_text() == 'windows: [\n'
+    assert (session_file(base_path, 'work')).read_text() == 'windows: [\n'
 
 
 def test_rename_session_refuses_unreadable_file(base_path, message_mock,
                                                 caplog, container_registry):
     base_path.mkdir(parents=True)
-    (base_path / 'work.yml').write_text('windows: [\n')
+    (session_file(base_path, 'work')).write_text('windows: [\n')
     mgr = windowsessions.SessionManager(base_path)
     with caplog.at_level(logging.ERROR):
         mgr.load_all()
     other = mgr.new_session('other')
 
-    with pytest.raises(windowsessions.SessionExistsError, match=r'work\.yml'):
+    with pytest.raises(windowsessions.SessionExistsError, match=r"sessions/work exists but can't be read"):
         mgr.rename_session('other', 'work')
-    assert (base_path / 'work.yml').read_text() == 'windows: [\n'
+    assert (session_file(base_path, 'work')).read_text() == 'windows: [\n'
     assert mgr.get('other') is other
 
 
@@ -631,7 +648,7 @@ def test_new_window_restores_closed_default(manager, windows, base_path,
 def work_with_bad_window(manager, base_path, monkeypatch, fake_mainwindow):
     work = manager.new_session('work')
     work.saved_windows = [{'win': 'a'}, {'bad': True}]
-    sessionfile.write(base_path / 'work.yml',
+    sessionfile.write(session_file(base_path, 'work'),
                       sessionfile.SessionData(windows=work.saved_windows))
 
     def restore(data, session, *, show=True):
@@ -645,13 +662,13 @@ def work_with_bad_window(manager, base_path, monkeypatch, fake_mainwindow):
 
 def test_open_session_moves_file_aside_when_a_window_fails(
         manager, base_path, work_with_bad_window, message_mock, caplog):
-    original = (base_path / 'work.yml').read_text()
+    original = (session_file(base_path, 'work')).read_text()
     with caplog.at_level(logging.ERROR):
         sessioncommands.open_session(work_with_bad_window)
 
-    broken = base_path / 'work.yml.broken'
+    broken = session_file(base_path, 'work.broken')
     assert broken.read_text() == original
-    assert any(str(broken) in msg.text for msg in message_mock.messages)
+    assert any(str(broken.parent) in msg.text for msg in message_mock.messages)
 
     manager.save_dirty()
     assert saved(base_path, 'work') == [{'win': 10}]
@@ -660,14 +677,14 @@ def test_open_session_moves_file_aside_when_a_window_fails(
 
 def test_open_session_refuses_saving_when_broken_file_exists(
         manager, base_path, work_with_bad_window, message_mock, caplog):
-    original = (base_path / 'work.yml').read_text()
-    (base_path / 'work.yml.broken').write_text('already here\n')
+    original = (session_file(base_path, 'work')).read_text()
+    (session_file(base_path, 'work.broken')).write_text('already here\n')
     with caplog.at_level(logging.ERROR):
         sessioncommands.open_session(work_with_bad_window)
         manager.save_dirty()
 
-    assert (base_path / 'work.yml').read_text() == original
-    assert (base_path / 'work.yml.broken').read_text() == 'already here\n'
+    assert (session_file(base_path, 'work')).read_text() == original
+    assert (session_file(base_path, 'work.broken')).read_text() == 'already here\n'
 
 
 def test_resume_after_shutdown(manager, windows, base_path):
@@ -741,9 +758,7 @@ def test_session_move_window_reports_failed_save(manager, windows):
 
 
 def test_load_all_warns_about_invalid_names(base_path, message_mock, caplog):
-    base_path.mkdir(parents=True)
-    (base_path / 'Work.yml').write_text('windows: []\n')
-    (base_path / '_autosave.yml').write_text('windows: []\n')
+    session_file(base_path, 'Work').write_text('windows: []\n')
     mgr = windowsessions.SessionManager(base_path)
 
     with caplog.at_level(logging.WARNING):
@@ -751,7 +766,7 @@ def test_load_all_warns_about_invalid_names(base_path, message_mock, caplog):
 
     assert [s.name for s in mgr.sessions()] == ['default']
     msg = message_mock.getmsg(usertypes.MessageLevel.warning)
-    assert str(base_path / 'Work.yml') in msg.text
+    assert str(base_path / 'Work') in msg.text
 
 
 def test_new_session_with_container(manager, container_registry, base_path):
@@ -759,7 +774,7 @@ def test_new_session_with_container(manager, container_registry, base_path):
     session = manager.new_session('job', container='work')
     assert session.container == 'work'
     assert session.profile_key == 'work'
-    assert sessionfile.read(base_path / 'job.yml').container == 'work'
+    assert sessionfile.read(session_file(base_path, 'job')).container == 'work'
 
 
 def test_new_session_unknown_container(manager):
@@ -774,7 +789,7 @@ def test_load_all_skips_invalid_container(registry, base_path, state_config,
                                           container_registry, message_mock,
                                           caplog):
     base_path.mkdir(parents=True)
-    (base_path / 'job.yml').write_text('container: Bad\nwindows: []\n')
+    (session_file(base_path, 'job')).write_text('container: Bad\nwindows: []\n')
     mgr = windowsessions.SessionManager(base_path)
 
     with caplog.at_level(logging.ERROR):
@@ -785,15 +800,15 @@ def test_load_all_skips_invalid_container(registry, base_path, state_config,
     assert msg.text.startswith('Skipping session job:')
     with pytest.raises(windowsessions.SessionExistsError):
         mgr.new_session('job')
-    assert (base_path / 'job.yml').read_text() == 'container: Bad\nwindows: []\n'
+    assert (session_file(base_path, 'job')).read_text() == 'container: Bad\nwindows: []\n'
 
 
 def test_adopt_containers_at_load(registry, base_path, state_config,
                                   fake_save_manager, windows,
                                   container_registry):
     base_path.mkdir(parents=True)
-    (base_path / 'job.yml').write_text('container: gone\nwindows: []\n')
-    (base_path / 'side.yml').write_text('container: gone\nwindows: []\n')
+    (session_file(base_path, 'job')).write_text('container: gone\nwindows: []\n')
+    (session_file(base_path, 'side')).write_text('container: gone\nwindows: []\n')
     mgr = windowsessions.SessionManager(base_path)
     mgr.load_all()
     mgr.adopt_containers()
@@ -835,7 +850,7 @@ def test_rename_container(manager, container_registry, base_path):
     assert manager.rename_container('old', 'new') == []
 
     assert manager.get('a').container == 'new'
-    assert sessionfile.read(base_path / 'a.yml').container == 'new'
+    assert sessionfile.read(session_file(base_path, 'a')).container == 'new'
     assert manager.get('c').container == 'default'
 
 

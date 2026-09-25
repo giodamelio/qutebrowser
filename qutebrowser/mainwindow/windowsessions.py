@@ -6,7 +6,7 @@
 
 Every window belongs to exactly one session, and the session decides which
 QWebEngineProfile the window's pages use. Non-private sessions are saved to
-data/sessions/<name>.yml, and the names of open ones are kept in the state
+data/sessions/<name>/, and the names of open ones are kept in the state
 file so they come back at the next start.
 """
 
@@ -14,6 +14,7 @@ import datetime
 import itertools
 import pathlib
 import re
+import shutil
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -30,6 +31,8 @@ DEFAULT_NAME = 'default'
 PRIVATE_PREFIX = 'private-'
 DEFAULT_CONTAINER = sessionfile.DEFAULT_CONTAINER
 _NAME_RE = re.compile(r'[a-z0-9][a-z0-9_-]*')
+SESSION_FILE = 'session.yml'
+_BROKEN_SUFFIX = '.broken'
 
 PrivateUnavailableError = profiles.PrivateUnavailableError
 
@@ -235,24 +238,26 @@ class SessionManager:
         return self._shutting_down
 
     def load_all(self) -> None:
-        """Read every session file, skipping and reporting broken ones."""
+        """Read every session directory, skipping and reporting broken ones."""
         self._base_path.mkdir(parents=True, exist_ok=True)
-        for path in sorted(self._base_path.glob('*.yml')):
-            name = path.stem
+        for directory in sorted(self._base_path.iterdir()):
+            name = directory.name
+            path = directory / SESSION_FILE
+            # Upstream's <name>.yml files and before-qt-515/ aren't sessions
+            # here (§21.1), and <name>.broken/ was moved aside on purpose.
+            if name.endswith(_BROKEN_SUFFIX) or not path.is_file():
+                continue
             try:
                 validate_name(name)
             except InvalidNameError as e:
-                if name.startswith('_'):
-                    # Upstream's internal sessions, like _autosave.
-                    log.sessions.debug(f"Ignoring {path}: not a valid session name")
-                else:
-                    message.warning(f"Skipping session file {path}: {e}")
+                message.warning(f"Skipping session directory {directory}: {e}")
                 continue
             try:
                 data = sessionfile.read(path)
             except sessionfile.SessionFileError as e:
                 if name == DEFAULT_NAME:
-                    self._quarantine(name, path, f"Skipping session {name}: {e}")
+                    self._quarantine(name, directory,
+                                     f"Skipping session {name}: {e}")
                 else:
                     self._unreadable.add(name)
                     message.error(f"Skipping session {name}: {e}")
@@ -268,33 +273,38 @@ class SessionManager:
             session.closed_windows = data.closed_windows
             self._sessions[name] = session
 
-    def _quarantine(self, name: str, path: pathlib.Path, reason: str) -> None:
-        """Keep a session file that can't be used from ever being overwritten."""
-        broken_path = path.parent / f'{path.name}.broken'
-        if broken_path.exists():
+    def _quarantine(self, name: str, directory: pathlib.Path,
+                    reason: str) -> None:
+        """Keep a session directory that can't be used from being overwritten."""
+        broken = directory.with_name(directory.name + _BROKEN_SUFFIX)
+        if broken.exists():
             self._unreadable.add(name)
             message.error(
-                f"{reason}. {path} could not be moved aside because "
-                f"{broken_path} already exists.")
+                f"{reason}. {directory} could not be moved aside because "
+                f"{broken} already exists.")
             return
-        path.rename(broken_path)
-        message.error(f"{reason}. Moved it to {broken_path}.")
+        directory.rename(broken)
+        message.error(f"{reason}. Moved it to {broken}.")
 
     def move_aside(self, session: Session) -> None:
-        """Keep the file of a session that didn't fully restore.
+        """Keep the directory of a session that didn't fully restore.
 
         Saving the windows that did restore would otherwise drop the rest.
         """
-        path = self.path_for(session)
-        if session.name in self._unreadable or not path.exists():
+        directory = self.dir_for(session)
+        if session.name in self._unreadable or not directory.exists():
             return
-        self._quarantine(session.name, path,
+        self._quarantine(session.name, directory,
                          f"Session {session.name} did not fully restore")
 
     def saved_open_names(self) -> list[str]:
         """Get the sessions the state file lists as open."""
         value = configfiles.state['general'].get('open_sessions', '')
         return [name for name in value.split(',') if name]
+
+    def unreadable_paths(self) -> list[pathlib.Path]:
+        """Get the directories of sessions whose session.yml can't be read."""
+        return sorted(self._base_path / name for name in self._unreadable)
 
     def get(self, name: str) -> Session:
         """Get a session by name, private or not."""
@@ -347,9 +357,12 @@ class SessionManager:
                 log.sessions.debug(f"Keeping {session.name} on {old}: {e}")
         return failed
 
-    def path_for(self, session: Session) -> pathlib.Path:
+    def dir_for(self, session: Session) -> pathlib.Path:
         assert not session.private, session
-        return self._base_path / f'{session.name}.yml'
+        return self._base_path / session.name
+
+    def path_for(self, session: Session) -> pathlib.Path:
+        return self.dir_for(session) / SESSION_FILE
 
     def new_session(self, name: str, *,
                     container: str = DEFAULT_CONTAINER) -> Session:
@@ -359,8 +372,7 @@ class SessionManager:
             raise SessionExistsError(f"Session {name} already exists!")
         if name in self._unreadable:
             raise SessionExistsError(
-                f"Session file {self._base_path / f'{name}.yml'} exists "
-                "but can't be read")
+                f"Session {self._base_path / name} exists but can't be read")
         if container not in containers.registry:
             raise UnknownContainerError(
                 f"Unknown container {container!r}, create it with "
@@ -380,17 +392,23 @@ class SessionManager:
         return session
 
     def delete_session(self, name: str) -> None:
-        """Forget a closed session and delete its file."""
+        """Forget a closed session and delete its directory."""
         session = self.get(name)
         if session.private or name == DEFAULT_NAME:
             raise SessionStateError(f"Session {name} can't be deleted")
         if session.is_open:
             raise SessionStateError(f"Session {name} is open, close it first")
-        self.path_for(session).unlink(missing_ok=True)
+        directory = self.dir_for(session)
+        try:
+            shutil.rmtree(directory)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            raise Error(f"Failed to delete {directory}: {e}")
         del self._sessions[name]
 
     def rename_session(self, old: str, new: str) -> None:
-        """Rename a session and its file."""
+        """Rename a session and its directory."""
         session = self.get(old)
         if session.private or old == DEFAULT_NAME:
             raise SessionStateError(f"Session {old} can't be renamed")
@@ -399,13 +417,12 @@ class SessionManager:
             raise SessionExistsError(f"Session {new} already exists!")
         if new in self._unreadable:
             raise SessionExistsError(
-                f"Session file {self._base_path / f'{new}.yml'} exists "
-                "but can't be read")
-        old_path = self.path_for(session)
+                f"Session {self._base_path / new} exists but can't be read")
+        old_dir = self.dir_for(session)
         try:
-            old_path.rename(self._base_path / f'{new}.yml')
+            old_dir.rename(self._base_path / new)
         except OSError as e:
-            raise Error(f"Failed to rename {old_path}: {e}")
+            raise Error(f"Failed to rename {old_dir}: {e}")
         session.name = new
         del self._sessions[old]
         self._sessions[new] = session
@@ -573,6 +590,11 @@ class SessionManager:
             raise sessionfile.SessionFileError(
                 f"Refusing to overwrite unreadable session file "
                 f"{self.path_for(session)}")
+        directory = self.dir_for(session)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise sessionfile.SessionFileError(f"{directory}: {e}")
         sessionfile.write(self.path_for(session), sessionfile.SessionData(
             container=session.container, windows=windows,
             closed_windows=session.closed_windows))

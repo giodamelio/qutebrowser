@@ -272,8 +272,9 @@ def test_initial_private_window_target(request, quteproc_new):
 def test_loading_empty_session(request, quteproc_new, short_tmpdir):
     """An open session without saved windows opens one new window."""
     sessions_dir = pathlib.Path(str(short_tmpdir)) / 'data' / 'sessions'
-    sessions_dir.mkdir(parents=True)
-    (sessions_dir / 'default.yml').write_text('container: default\nwindows: []\n')
+    (sessions_dir / 'default').mkdir(parents=True)
+    (sessions_dir / 'default' / 'session.yml').write_text(
+        'container: default\nwindows: []\n')
     args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
     quteproc_new.start(args)
 
@@ -382,7 +383,8 @@ def test_session_survives_kill(request, quteproc_new, short_tmpdir):
     # Wait for startup to settle on its about:blank start page before opening
     # another page, so the eventual save can only be explained by the load
     # below marking the session dirty - not by the startup save racing it.
-    path = pathlib.Path(str(short_tmpdir), 'data', 'sessions', 'default.yml')
+    path = pathlib.Path(str(short_tmpdir), 'data', 'sessions', 'default',
+                        'session.yml')
     quteproc_new.wait_for(message='Saved session default')
     deadline = time.monotonic() + 5
     while not (path.exists() and 'about:blank' in path.read_text(encoding='utf-8')):

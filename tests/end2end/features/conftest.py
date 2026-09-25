@@ -547,14 +547,16 @@ def compare_session(quteproc, docstring):
 
 @bdd.then(bdd.parsers.parse('the session file {name} should contain "{text}"'))
 def session_file_contains(quteproc, name, text):
-    path = pathlib.Path(quteproc.basedir, 'data', 'sessions', f'{name}.yml')
+    path = pathlib.Path(quteproc.basedir, 'data', 'sessions', name,
+                        'session.yml')
     assert text in path.read_text(encoding='utf-8')
 
 
 @bdd.then(bdd.parsers.parse(
     'the session file {name} should not contain "{text}"'))
 def session_file_not_contains(quteproc, name, text):
-    path = pathlib.Path(quteproc.basedir, 'data', 'sessions', f'{name}.yml')
+    path = pathlib.Path(quteproc.basedir, 'data', 'sessions', name,
+                        'session.yml')
     assert text not in path.read_text(encoding='utf-8')
 
 
