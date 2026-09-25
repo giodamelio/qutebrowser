@@ -171,6 +171,28 @@ def test_close_choice_asks_in_private_sessions(manager, windows, fake_ask):
     assert 'discard' in kwargs['options'][1][2]
 
 
+def test_close_choice_stale_window_answer(manager, windows, monkeypatch):
+    """The other window may close while this window's prompt is blocking.
+
+    A "window" answer to a prompt that's now stale (the session it was
+    asked for is down to just this window) must be downgraded to "plain",
+    the same as if the prompt had never been needed.
+    """
+    window, other = two_windows(manager, windows, manager.default)
+
+    def ask_then_other_window_closes(_window):
+        manager.remove_window(manager.default, other.win_id)
+        return CloseChoice.window
+
+    monkeypatch.setattr(closedwindows, '_ask', ask_then_other_window_closes)
+    choice = closedwindows.close_choice(window)
+    assert choice is CloseChoice.plain
+
+    if choice is CloseChoice.window:
+        closedwindows.record(window)
+    assert manager.default.closed_windows == []
+
+
 def test_window_close(manager, windows):
     window = open_window(manager, windows, manager.default, 1)
     closedwindows.window_close(win_id=1)

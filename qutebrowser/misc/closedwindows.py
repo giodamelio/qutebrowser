@@ -64,7 +64,13 @@ def close_choice(window: Any, preset: CloseChoice | None = None) -> CloseChoice:
         return CloseChoice.plain
     if preset is CloseChoice.window:
         return preset
-    return _ask(window)
+    answer = _ask(window)
+    if answer is CloseChoice.window:
+        # _ask() blocks; another window of this session may have closed in
+        # the meantime, so the table is re-run to catch a session that's
+        # now down to just this one.
+        return close_choice(window, preset=answer)
+    return answer
 
 
 def _ask(window: Any) -> CloseChoice:
