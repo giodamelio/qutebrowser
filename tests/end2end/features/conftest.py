@@ -811,3 +811,12 @@ def give_tab_to_session(quteproc, name):
     windows = quteproc.get_session()['windows']
     win_id = next(win['win_id'] for win in windows if win['session'] == name)
     quteproc.send_cmd(f':tab-give {win_id}')
+
+
+@bdd.when(bdd.parsers.parse(
+    'I take tab {index:d} from the window of session {name}'))
+def take_tab_from_session(quteproc, index, name):
+    """Run :tab-take with a tab of the first window of a session."""
+    windows = quteproc.get_session()['windows']
+    win_id = next(win['win_id'] for win in windows if win['session'] == name)
+    quteproc.send_cmd(f':tab-take {win_id}/{index}')

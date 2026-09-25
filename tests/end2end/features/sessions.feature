@@ -431,3 +431,36 @@ Feature: Saving and loading sessions
         - history:
           - url: http://localhost:*/data/numbers/1.txt
       """
+
+  Scenario: Taking a tab from a window on another container
+    When I run :container-new take-a
+    And I run :session-new take-session --container take-a
+    And I take tab 1 from the window of session default
+    Then the error "Can't move tabs from session default (container default) to session take-session (container take-a)" should be shown
+
+  Scenario: Giving a tab to another session on the same container
+    When I run :container-new share-give-a
+    And I run :session-new share-give-one --container share-give-a
+    And I open data/numbers/1.txt
+    And I run :session-new share-give-two --container share-give-a
+    And I open data/numbers/2.txt
+    And I open data/numbers/3.txt in a new tab
+    And I give the current tab to the window of session share-give-one
+    And I wait until data/numbers/3.txt is loaded
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+      - session: share-give-one
+        tabs:
+        - history:
+          - url: about:blank
+          - url: http://localhost:*/data/numbers/1.txt
+        - history:
+          - url: http://localhost:*/data/numbers/3.txt
+      - session: share-give-two
+        tabs:
+        - history:
+          - url: about:blank
+          - url: http://localhost:*/data/numbers/2.txt
+      """
