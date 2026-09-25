@@ -474,6 +474,11 @@ class CommandDispatcher:
         if tabbed_browser is self._tabbed_browser:
             raise cmdutils.CommandError("Can't take a tab from the same "
                                         "window")
+        try:
+            windowsessions.check_same_profile(tabbed_browser.session,
+                                              self._tabbed_browser.session)
+        except windowsessions.ProfileMismatchError as e:
+            raise cmdutils.CommandError(str(e))
 
         self._open(tab.url(), tab=True)
         if not keep:
@@ -517,6 +522,11 @@ class CommandDispatcher:
 
             tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                         window=win_id)
+            try:
+                windowsessions.check_same_profile(self._tabbed_browser.session,
+                                                  tabbed_browser.session)
+            except windowsessions.ProfileMismatchError as e:
+                raise cmdutils.CommandError(str(e))
 
             if private and not tabbed_browser.is_private:
                 raise cmdutils.CommandError(

@@ -395,3 +395,39 @@ Feature: Saving and loading sessions
             pinned: false
       """
 
+
+  # Moving tabs between profiles
+
+  Scenario: Giving a tab to a window on another container
+    When I run :container-new give-a
+    And I run :session-new give-session --container give-a
+    And I open data/numbers/1.txt
+    And I open data/numbers/2.txt in a new tab
+    And I give the current tab to the window of session default
+    Then the error "Can't move tabs from session give-session (container give-a) to session default (container default)" should be shown
+
+  Scenario: Giving a tab from a private window to a regular one
+    When I open data/numbers/1.txt in a private window
+    And I open data/numbers/2.txt in a new tab
+    And I give the current tab to the window of session default
+    Then the error "Can't move tabs from session private-* (private) to session default (container default)" should be shown
+
+  Scenario: Giving a tab to another window of the same session
+    When I open data/numbers/1.txt in a new window
+    And I open data/numbers/2.txt in a new tab
+    And I give the current tab to the window of session default
+    And I wait until data/numbers/2.txt is loaded
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+        tabs:
+        - history:
+          - url: about:blank
+        - history:
+          - url: http://localhost:*/data/numbers/2.txt
+      - session: default
+        tabs:
+        - history:
+          - url: http://localhost:*/data/numbers/1.txt
+      """

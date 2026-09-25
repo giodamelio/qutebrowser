@@ -802,3 +802,12 @@ def check_cookie_not_set(quteproc, name):
     data = json.loads(content)
     print(data)
     assert name not in data['cookies']
+
+
+@bdd.when(bdd.parsers.parse(
+    'I give the current tab to the window of session {name}'))
+def give_tab_to_session(quteproc, name):
+    """Run :tab-give with the id of the first window of a session."""
+    windows = quteproc.get_session()['windows']
+    win_id = next(win['win_id'] for win in windows if win['session'] == name)
+    quteproc.send_cmd(f':tab-give {win_id}')

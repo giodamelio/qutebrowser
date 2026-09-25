@@ -885,3 +885,28 @@ def test_window_closing_session_last_window_with_private_open(
     manager.window_closing(window)
     assert open_list(state_config) == 'default'
     assert saved(base_path, 'work') == [{'win': 2}]
+
+
+def test_check_same_profile(manager, container_registry):
+    container_registry.add('work', '#111111')
+    job = manager.new_session('job', container='work')
+    side = manager.new_session('side', container='work')
+    first = manager.new_private()
+    second = manager.new_private()
+
+    windowsessions.check_same_profile(job, side)
+    windowsessions.check_same_profile(first, first)
+
+    with pytest.raises(
+            windowsessions.ProfileMismatchError,
+            match=r"Can't move tabs from session default \(container "
+                  r"default\) to session job \(container work\)"):
+        windowsessions.check_same_profile(manager.default, job)
+    with pytest.raises(
+            windowsessions.ProfileMismatchError,
+            match=r"Can't move tabs from session private-1 \(private\) to "
+                  r"session private-2 \(private\)"):
+        windowsessions.check_same_profile(first, second)
+    with pytest.raises(windowsessions.ProfileMismatchError,
+                       match=r"to session default \(container default\)"):
+        windowsessions.check_same_profile(first, manager.default)
