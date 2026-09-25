@@ -16,7 +16,7 @@ from qutebrowser.utils import jinja, log
 
 def set_register(obj: QWidget,
                  stylesheet: str | None = None, *,
-                 update: bool = True) -> None:
+                 update: bool = True) -> '_StyleSheetObserver':
     """Set the stylesheet for an object.
 
     Also, register an update when the config is changed.
@@ -26,9 +26,13 @@ def set_register(obj: QWidget,
              Must have a STYLESHEET attribute if stylesheet is not given.
         stylesheet: The stylesheet to use.
         update: Whether to update the stylesheet on config changes.
+
+    Return:
+        The observer, to switch the object to another template later.
     """
     observer = _StyleSheetObserver(obj, stylesheet, update)
     observer.register()
+    return observer
 
 
 @debugcachestats.register()
@@ -90,6 +94,13 @@ class _StyleSheetObserver(QObject):
         assert self._options is not None
         if option in self._options:
             self._obj.setStyleSheet(self._get_stylesheet())
+
+    def set_stylesheet(self, stylesheet: str) -> None:
+        """Switch to another template and apply it."""
+        self._stylesheet = stylesheet
+        if self._update:
+            self._options = jinja.template_config_variables(stylesheet)
+        self._obj.setStyleSheet(self._get_stylesheet())
 
     def register(self) -> None:
         """Do a first update and listen for more."""
