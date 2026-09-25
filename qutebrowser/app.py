@@ -221,6 +221,7 @@ def process_pos_args(args, via_ipc=False, cwd=None, target_arg=None):
         command_target = 'tab-silent'
 
     window: mainwindow.MainWindow | None = None
+    private_session = None
 
     if via_ipc and (not args or args == ['']):
         window = mainwindow.get_window(via_ipc=via_ipc, target=new_window_target)
@@ -257,10 +258,15 @@ def process_pos_args(args, via_ipc=False, cwd=None, target_arg=None):
                 message.error("Error in startup argument '{}': {}".format(
                     cmd, e))
             else:
-                window = open_url(url, target=open_target, via_ipc=via_ipc)
+                window = open_url(url, target=open_target, via_ipc=via_ipc,
+                                  private_session=private_session)
+                if window.session.private:
+                    # The rest of this message's URLs join the same session.
+                    private_session = window.session
 
 
-def open_url(url, target=None, no_raise=False, via_ipc=True):
+def open_url(url, target=None, no_raise=False, via_ipc=True,
+            private_session=None):
     """Open a URL in new window/tab.
 
     Args:
@@ -268,13 +274,16 @@ def open_url(url, target=None, no_raise=False, via_ipc=True):
         target: same as new_instance_open_target (used as a default).
         no_raise: suppress target window raising.
         via_ipc: Whether the arguments were transmitted over IPC.
+        private_session: The private session for a private-window target.
 
     Return:
         The MainWindow of a window that was used to open the URL.
     """
     target = target or config.val.new_instance_open_target
     background = target in {'tab-bg', 'tab-bg-silent'}
-    window = mainwindow.get_window(via_ipc=via_ipc, target=target, no_raise=no_raise)
+    window = mainwindow.get_window(via_ipc=via_ipc, target=target,
+                                   no_raise=no_raise,
+                                   private_session=private_session)
     log.init.debug("About to open URL: {}".format(url.toDisplayString()))
     window.tabbed_browser.tabopen(url, background=background, related=False)
     window.show()

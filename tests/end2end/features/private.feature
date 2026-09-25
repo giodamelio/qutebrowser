@@ -242,3 +242,21 @@ Feature: Using private browsing
         And I run :close
         And I open data/javascript/enabled.html in a private window
         Then the page should contain the plaintext "JavaScript is disabled"
+
+    Scenario: Opening several URLs with one :open -p
+        When I run :debug-close-other-sessions
+        And I open data/numbers/1.txt and data/numbers/2.txt with one :open -p
+        And I wait until data/numbers/1.txt is loaded
+        And I wait until data/numbers/2.txt is loaded
+        Then the session should look like:
+            """
+            windows:
+            - session: default
+            - session: private-*
+              private: true
+              tabs:
+              - history:
+                - url: http://localhost:*/data/numbers/1.txt
+              - history:
+                - url: http://localhost:*/data/numbers/2.txt
+            """

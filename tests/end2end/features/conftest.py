@@ -773,3 +773,11 @@ def set_up_fileselector(quteproc, py_proc, tmpdir, kind, files, output_type):
 def run_command_then(quteproc, command):
     """Run a qutebrowser command."""
     quteproc.send_cmd(command)
+
+
+@bdd.then("the private windows should share one session")
+def private_windows_share_session(quteproc):
+    windows = quteproc.get_session()['windows']
+    names = [win['session'] for win in windows if win.get('private')]
+    assert len(names) > 1, windows
+    assert len(set(names)) == 1, names

@@ -138,3 +138,9 @@ Feature: Invoking a new process
               - history:
                 - url: http://localhost:*/data/hello.txt
             """
+
+    Scenario: Several URLs in one IPC message share one private session
+        When I open data/numbers/1.txt and data/numbers/2.txt in one IPC message with target private-window
+        And I wait until data/numbers/1.txt is loaded
+        And I wait until data/numbers/2.txt is loaded
+        Then the private windows should share one session

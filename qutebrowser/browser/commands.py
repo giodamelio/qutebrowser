@@ -304,7 +304,14 @@ class CommandDispatcher:
         if url is None:
             urls = [config.val.url.default_page]
         else:
-            urls = self._parse_url_input(url)
+            # A list, not a generator: the private-window branch below
+            # iterates urls twice.
+            urls = list(self._parse_url_input(url))
+
+        if private:
+            cmdutils.check_exclusive((tab, bg, window, private), 'tbwp')
+            self._open_private(urls, secure=secure)
+            return
 
         for i, cur_url in enumerate(urls):
             if secure and cur_url.scheme() == 'http':
@@ -333,6 +340,24 @@ class CommandDispatcher:
 
                 else:
                     curtab.load_url(cur_url)
+
+    def _open_private(self, urls, *, secure):
+        """Open urls in one new private window, for :open -p.
+
+        Args:
+            urls: The URLs to open.
+            secure: Force HTTPS.
+        """
+        for cur_url in urls:
+            if secure and cur_url.scheme() == 'http':
+                cur_url.setScheme('https')
+            urlutils.raise_cmdexc_if_invalid(cur_url)
+        # One command opens one private session; extra URLs become
+        # background tabs in its window.
+        tabbed_browser = self._new_tabbed_browser(private=True)
+        for i, cur_url in enumerate(urls):
+            tabbed_browser.tabopen(cur_url, background=i > 0)
+        tabbed_browser.window().show()
 
     def _parse_url(self, url, *, force_search=False):
         """Parse a URL or quickmark or search query.
