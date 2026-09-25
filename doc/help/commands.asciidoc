@@ -61,6 +61,7 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<config-unset,config-unset>>|Unset an option.
 |<<config-write-py,config-write-py>>|Write the current configuration to a config.py file.
 |<<container-delete,container-delete>>|Delete a runtime container and its data.
+|<<container-list,container-list>>|Show every container on qute://containers.
 |<<container-new,container-new>>|Create a runtime container.
 |<<container-rename,container-rename>>|Rename a runtime container, its data, and the sessions using it.
 |<<devtools,devtools>>|Toggle the developer tools (web inspector).
@@ -120,10 +121,12 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<selection-follow,selection-follow>>|Follow the selected text.
 |<<session-close,session-close>>|Save a session and close all of its windows.
 |<<session-delete,session-delete>>|Delete a closed session and its file.
+|<<session-list,session-list>>|Show every session on qute://sessions.
 |<<session-move-window,session-move-window>>|Move the current window into another session.
 |<<session-new,session-new>>|Create a session and open it in a new window.
 |<<session-open,session-open>>|Open a session, or focus it if it is already open.
 |<<session-rename,session-rename>>|Rename a session and its file.
+|<<session-restore-window,session-restore-window>>|Reopen a window from a session's closed-window history.
 |<<set,set>>|Set an option.
 |<<set-mark,set-mark>>|Set a mark at the current scroll position in the current tab.
 |<<spawn,spawn>>|Spawn an external command.
@@ -144,6 +147,7 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<undo,undo>>|Re-open the last closed tab(s) or window.
 |<<version,version>>|Show version information.
 |<<view-source,view-source>>|Show the source of the current page in a new tab.
+|<<window-close,window-close>>|Close the current window, asking first if its session has others.
 |<<window-only,window-only>>|Close all windows except for the current one.
 |<<yank,yank>>|Yank (copy) something to the clipboard or primary selection.
 |<<zoom,zoom>>|Set the zoom level for the current tab.
@@ -535,6 +539,17 @@ Delete a runtime container and its data.
 
 ==== positional arguments
 * +'name'+: The name of the container.
+
+[[container-list]]
+=== container-list
+Syntax: +:container-list [*--tab*] [*--bg*] [*--window*]+
+
+Show every container on qute://containers.
+
+==== optional arguments
+* +*-t*+, +*--tab*+: Open in a new tab.
+* +*-b*+, +*--bg*+: Open in a background tab.
+* +*-w*+, +*--window*+: Open in a new window.
 
 [[container-new]]
 === container-new
@@ -1337,6 +1352,17 @@ Delete a closed session and its file.
 ==== positional arguments
 * +'name'+: The name of the session.
 
+[[session-list]]
+=== session-list
+Syntax: +:session-list [*--tab*] [*--bg*] [*--window*]+
+
+Show every session on qute://sessions.
+
+==== optional arguments
+* +*-t*+, +*--tab*+: Open in a new tab.
+* +*-b*+, +*--bg*+: Open in a background tab.
+* +*-w*+, +*--window*+: Open in a new window.
+
 [[session-move-window]]
 === session-move-window
 Syntax: +:session-move-window 'name'+
@@ -1377,6 +1403,19 @@ Rename a session and its file.
 ==== positional arguments
 * +'old'+: The current name of the session.
 * +'new'+: The new name.
+
+[[session-restore-window]]
+=== session-restore-window
+Syntax: +:session-restore-window ['name'] ['index']+
+
+Reopen a window from a session's closed-window history.
+
+The session is opened first if it is closed.
+
+==== positional arguments
+* +'name'+: The session. Defaults to the current window's.
+* +'index'+: Which closed window to reopen, 1 being the most recently closed.
+
 
 [[set]]
 === set
@@ -1655,6 +1694,16 @@ Show the source of the current page in a new tab.
  slightly different source.
  Some JavaScript processing may be applied.
  Needs the optional Pygments dependency for highlighting.
+
+
+[[window-close]]
+=== window-close
+Syntax: +:window-close [*--no-prompt*]+
+
+Close the current window, asking first if its session has others.
+
+==== optional arguments
+* +*-n*+, +*--no-prompt*+: Don't ask; close only this window and keep it in the session's closed-window history.
 
 
 [[window-only]]
