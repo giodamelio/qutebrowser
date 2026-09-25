@@ -14,7 +14,7 @@ pytest.importorskip('qutebrowser.qt.webenginecore')
 from qutebrowser.api import cmdutils
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.mainwindow import mainwindow, windowsessions, windowundo
-from qutebrowser.misc import sessioncommands, sessionfile
+from qutebrowser.misc import containers, sessioncommands, sessionfile
 from qutebrowser.utils import objreg, qtutils, usertypes
 
 
@@ -86,7 +86,7 @@ def base_path(tmp_path):
 
 @pytest.fixture
 def manager(registry, monkeypatch, base_path, state_config, fake_save_manager,
-           windows):
+           windows, container_registry):
     mgr = windowsessions.SessionManager(
         base_path, serialize_window=lambda window: {'win': window.win_id})
     mgr.load_all()
@@ -476,7 +476,7 @@ def test_new_session_refuses_unreadable_file(base_path, message_mock, caplog):
 
 
 def test_rename_session_refuses_unreadable_file(base_path, message_mock,
-                                                caplog):
+                                                caplog, container_registry):
     base_path.mkdir(parents=True)
     (base_path / 'work.yml').write_text('windows: [\n')
     mgr = windowsessions.SessionManager(base_path)
@@ -674,3 +674,101 @@ def test_load_all_warns_about_invalid_names(base_path, message_mock, caplog):
     assert [s.name for s in mgr.sessions()] == ['default']
     msg = message_mock.getmsg(usertypes.MessageLevel.warning)
     assert str(base_path / 'Work.yml') in msg.text
+
+
+def test_new_session_with_container(manager, container_registry, base_path):
+    container_registry.add('work', '#111111')
+    session = manager.new_session('job', container='work')
+    assert session.container == 'work'
+    assert session.profile_key == 'work'
+    assert sessionfile.read(base_path / 'job.yml').container == 'work'
+
+
+def test_new_session_unknown_container(manager):
+    with pytest.raises(windowsessions.UnknownContainerError,
+                       match="Unknown container 'nope', create it with "
+                             ":container-new nope"):
+        manager.new_session('job', container='nope')
+
+
+def test_load_all_skips_invalid_container(registry, base_path, state_config,
+                                          fake_save_manager, windows,
+                                          container_registry, message_mock,
+                                          caplog):
+    base_path.mkdir(parents=True)
+    (base_path / 'job.yml').write_text('container: Bad\nwindows: []\n')
+    mgr = windowsessions.SessionManager(base_path)
+
+    with caplog.at_level(logging.ERROR):
+        mgr.load_all()
+
+    assert [s.name for s in mgr.sessions()] == ['default']
+    msg = message_mock.getmsg(usertypes.MessageLevel.error)
+    assert msg.text.startswith('Skipping session job:')
+    with pytest.raises(windowsessions.SessionExistsError):
+        mgr.new_session('job')
+    assert (base_path / 'job.yml').read_text() == 'container: Bad\nwindows: []\n'
+
+
+def test_adopt_containers_at_load(registry, base_path, state_config,
+                                  fake_save_manager, windows,
+                                  container_registry):
+    base_path.mkdir(parents=True)
+    (base_path / 'job.yml').write_text('container: gone\nwindows: []\n')
+    (base_path / 'side.yml').write_text('container: gone\nwindows: []\n')
+    mgr = windowsessions.SessionManager(base_path)
+    mgr.load_all()
+    mgr.adopt_containers()
+    assert container_registry.get('gone') == containers.Container(
+        'gone', containers.FALLBACK_COLOR, 'runtime')
+
+
+def test_adopt_after_declared_container_removed(manager, windows,
+                                                container_registry,
+                                                config_stub):
+    container_registry.merged.connect(manager.adopt_containers)
+    config_stub.val.containers = {'decl': {'color': 'red'}}
+    container_registry.on_config_changed('containers')
+    session = manager.new_session('job', container='decl')
+    open_window(manager, windows, session, 1)
+
+    config_stub.val.containers = {}
+    container_registry.on_config_changed('containers')
+
+    assert container_registry.get('decl').source == 'runtime'
+    assert session.is_open
+
+
+def test_sessions_using(manager, container_registry):
+    container_registry.add('work', '#111111')
+    manager.new_session('b', container='work')
+    manager.new_session('a', container='work')
+    manager.new_session('c')
+    manager.new_private()
+    assert [s.name for s in manager.sessions_using('work')] == ['a', 'b']
+    assert [s.name for s in manager.sessions_using('default')] == ['c', 'default']
+
+
+def test_rename_container(manager, container_registry, base_path):
+    container_registry.add('old', '#111111')
+    manager.new_session('a', container='old')
+    manager.new_session('c')
+
+    assert manager.rename_container('old', 'new') == []
+
+    assert manager.get('a').container == 'new'
+    assert sessionfile.read(base_path / 'a.yml').container == 'new'
+    assert manager.get('c').container == 'default'
+
+
+def test_rename_container_write_failure(manager, container_registry,
+                                        monkeypatch):
+    container_registry.add('old', '#111111')
+    manager.new_session('a', container='old')
+
+    def fail(*_args, **_kwargs):
+        raise sessionfile.SessionFileError('disk full')
+
+    monkeypatch.setattr(sessionfile, 'write', fail)
+    assert manager.rename_container('old', 'new') == ['a']
+    assert manager.get('a').container == 'old'

@@ -83,6 +83,27 @@ def session(*, info=None):
     return model
 
 
+def container(*, info=None):
+    """A CompletionModel filled with container names and their source."""
+    from qutebrowser.misc import containers
+    utils.unused(info)
+    model = completionmodel.CompletionModel()
+    items = ((c.name, c.source) for c in containers.registry.containers())
+    model.add_category(listcategory.ListCategory("Containers", items))
+    return model
+
+
+def runtime_container(*, info=None):
+    """A CompletionModel filled with containers created at runtime."""
+    from qutebrowser.misc import containers
+    utils.unused(info)
+    model = completionmodel.CompletionModel()
+    items = ((c.name, c.source) for c in containers.registry.containers()
+             if c.source == 'runtime')
+    model.add_category(listcategory.ListCategory("Containers", items))
+    return model
+
+
 def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=None):
     """Helper to get the completion model for tabs/other_tabs.
 

@@ -800,6 +800,26 @@ def test_session_completion(qtmodeltester, session_manager_stub):
     })
 
 
+def test_container_completion(qtmodeltester, container_registry, config_stub):
+    container_registry.add('play', '#111111')
+    config_stub.val.containers = {'work': {'color': 'red'}}
+    container_registry.on_config_changed('containers')
+
+    model = miscmodels.container()
+    model.set_pattern('')
+    qtmodeltester.check(model)
+    _check_completions(model, {
+        "Containers": [('default', 'builtin', None),
+                       ('play', 'runtime', None),
+                       ('work', 'declared', None)]
+    })
+
+    model = miscmodels.runtime_container()
+    model.set_pattern('')
+    qtmodeltester.check(model)
+    _check_completions(model, {"Containers": [('play', 'runtime', None)]})
+
+
 def test_tab_completion(qtmodeltester, fake_web_tab, win_registry,
                         tabbed_browser_stubs):
     tabbed_browser_stubs[0].widget.tabs = [

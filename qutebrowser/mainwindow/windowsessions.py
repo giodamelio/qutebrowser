@@ -19,7 +19,7 @@ from typing import Any, cast
 
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.config import configfiles
-from qutebrowser.misc import sessionfile
+from qutebrowser.misc import containers, sessionfile
 from qutebrowser.utils import log, message, objreg, standarddir, usertypes, utils
 
 
@@ -194,6 +194,12 @@ class SessionManager:
                     self._unreadable.add(name)
                     message.error(f"Skipping session {name}: {e}")
                 continue
+            try:
+                validate_name(data.container)
+            except InvalidNameError as e:
+                self._unreadable.add(name)
+                message.error(f"Skipping session {name}: invalid container: {e}")
+                continue
             session = Session(name, private=False, container=data.container)
             session.saved_windows = data.windows
             session.closed_windows = data.closed_windows
@@ -243,6 +249,40 @@ class SessionManager:
     def private_sessions(self) -> list[Session]:
         return list(self._private.values())
 
+    def sessions_using(self, container: str) -> list[Session]:
+        """Get the saved sessions using a container, open or closed."""
+        return [session for session in self.sessions()
+                if not session.private and session.container == container]
+
+    def adopt_containers(self) -> None:
+        """Keep every container a saved session uses defined (§16.4)."""
+        missing: dict[str, list[str]] = {}
+        for session in self._sessions.values():
+            if session.container not in containers.registry:
+                missing.setdefault(session.container, []).append(session.name)
+        if missing:
+            containers.registry.adopt(missing)
+
+    def rename_container(self, old: str, new: str) -> list[str]:
+        """Point every session using container old at new.
+
+        The container must not be loaded, so every such session is closed.
+
+        Return:
+            The sessions whose file couldn't be written. They keep old.
+        """
+        failed = []
+        for session in self.sessions_using(old):
+            assert not session.is_open, session
+            session.container = new
+            try:
+                self._write(session, session.saved_windows)
+            except sessionfile.SessionFileError as e:
+                session.container = old
+                failed.append(session.name)
+                log.sessions.debug(f"Keeping {session.name} on {old}: {e}")
+        return failed
+
     def path_for(self, session: Session) -> pathlib.Path:
         assert not session.private, session
         return self._base_path / f'{session.name}.yml'
@@ -257,8 +297,10 @@ class SessionManager:
             raise SessionExistsError(
                 f"Session file {self._base_path / f'{name}.yml'} exists "
                 "but can't be read")
-        if container != DEFAULT_CONTAINER:
-            raise UnknownContainerError(f"Unknown container {container!r}")
+        if container not in containers.registry:
+            raise UnknownContainerError(
+                f"Unknown container {container!r}, create it with "
+                f":container-new {container}")
         session = Session(name, private=False, container=container)
         self._write(session, [])
         self._sessions[name] = session
@@ -452,3 +494,5 @@ def init() -> None:
     global manager
     manager = SessionManager(pathlib.Path(standarddir.data()) / 'sessions')
     manager.load_all()
+    manager.adopt_containers()
+    containers.registry.merged.connect(manager.adopt_containers)

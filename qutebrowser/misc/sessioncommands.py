@@ -78,6 +78,7 @@ def _session(name: str) -> windowsessions.Session:
 
 @cmdutils.register()
 @cmdutils.argument('private', flag='p')
+@cmdutils.argument('container', completion=miscmodels.container)
 def session_new(name: str | None = None, *, container: str | None = None,
                 private: bool = False) -> None:
     """Create a session and open it in a new window.
