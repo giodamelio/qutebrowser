@@ -58,9 +58,8 @@ def ask_and_open(urls: list[QUrl], *, target: str) -> None:
     discarded = False
 
     def discard_once() -> None:
-        # Cancelling and the asking window closing (aborting) are mutually
-        # exclusive in normal operation, but both are wired here in case a
-        # future queue change lets them race for the same question.
+        # cancelled and aborted can both reach this handler for the same
+        # question, e.g. cancelling one whose window is also closing.
         nonlocal discarded
         if discarded:
             return
