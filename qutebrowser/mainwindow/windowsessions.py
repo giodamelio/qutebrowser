@@ -398,13 +398,14 @@ class SessionManager:
         """Save the session of a window that is about to close.
 
         Called while the window still has its tabs. Closing the browser's last
-        window counts as quitting, so its session stays open.
+        regular window counts as quitting, so its session stays open; private
+        windows never come back, so they don't count.
         """
         session = window.session
         if (self._shutting_down or session.private or
                 session.name in self._closing):
             return
-        if sum(len(s.windows) for s in self.sessions()) == 1:
+        if sum(len(s.windows) for s in self.sessions() if not s.private) == 1:
             self._save_reporting(session)
         elif session.windows == {window.win_id}:
             self._save_reporting(session)
