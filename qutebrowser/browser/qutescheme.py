@@ -608,3 +608,8 @@ def qute_start(_url: QUrl) -> _HandlerRet:
                         search_url=searchurl,
                         quickmarks=quickmarks)
     return 'text/html', page
+
+
+# Imported for its side effect: it registers qute://containers and
+# qute://sessions.
+from qutebrowser.browser import sessionpages  # pylint: disable=unused-import

@@ -5,6 +5,7 @@
 """Commands to create, delete and rename runtime containers."""
 
 from qutebrowser.api import cmdutils
+from qutebrowser.browser import sessionpages
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.completion.models import miscmodels
 from qutebrowser.mainwindow import windowsessions
@@ -125,3 +126,19 @@ def container_rename(old: str, new: str) -> None:
             f"Renamed container {old} to {new}, but these sessions still use "
             f"{old}, and their data now lives under container {new}: "
             f"{_describe_failures(failed)}")
+
+
+@cmdutils.register()
+@cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+def container_list(tab: bool = False, bg: bool = False, window: bool = False,
+                   *, win_id: int | None = None) -> None:
+    """Show every container on qute://containers.
+
+    Args:
+        tab: Open in a new tab.
+        bg: Open in a background tab.
+        window: Open in a new window.
+    """
+    assert win_id is not None
+    sessionpages.open_page('qute://containers/', win_id, tab=tab, bg=bg,
+                           window=window)
