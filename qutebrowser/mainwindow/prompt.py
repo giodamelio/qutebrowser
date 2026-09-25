@@ -160,9 +160,13 @@ class PromptQueue(QObject):
             The answer of the user when blocking=True.
             None if blocking=False.
         """
+        # win_id isn't part of Question's own repr (matching upstream's), so
+        # it's appended here: e2e's "prompt window" steps parse it out of
+        # this line to find which window shows a targeted question.
         log.prompt.debug("Asking question {}, blocking {}, loops {}, queue "
-                         "{}".format(question, blocking, self._loops,
-                                     self._queue))
+                         "{}, win_id={}".format(question, blocking,
+                                                self._loops, self._queue,
+                                                question.win_id))
 
         if self._shutting_down:
             # If we're currently shutting down we have to ignore this question
