@@ -266,13 +266,14 @@ class SessionManager:
         if missing:
             containers.registry.adopt(missing)
 
-    def rename_container(self, old: str, new: str) -> list[str]:
+    def rename_container(self, old: str, new: str) -> list[tuple[str, str]]:
         """Point every session using container old at new.
 
         The container must not be loaded, so every such session is closed.
 
         Return:
-            The sessions whose file couldn't be written. They keep old.
+            (name, error) for each session whose file couldn't be written.
+            They keep old.
         """
         failed = []
         for session in self.sessions_using(old):
@@ -282,7 +283,7 @@ class SessionManager:
                 self._write(session, session.saved_windows)
             except sessionfile.SessionFileError as e:
                 session.container = old
-                failed.append(session.name)
+                failed.append((session.name, str(e)))
                 log.sessions.debug(f"Keeping {session.name} on {old}: {e}")
         return failed
 

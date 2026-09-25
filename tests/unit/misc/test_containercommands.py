@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import logging
+
 import pytest
 
 pytest.importorskip('qutebrowser.qt.webenginecore')
@@ -190,8 +192,9 @@ def test_container_rename_session_write_failure(manager, container_registry,
 
     monkeypatch.setattr(sessionfile, 'write', fail)
     with pytest.raises(cmdutils.CommandError,
-                       match='Renamed container old to new, but sessions '
-                             'still use old: a'):
+                       match=r'Renamed container old to new, but these '
+                             r'sessions still use old, and their data now '
+                             r'lives under container new: a \(disk full\)'):
         containercommands.container_rename('old', 'new')
     assert 'new' in container_registry
     assert 'old' in container_registry
@@ -219,3 +222,38 @@ def test_container_rename_rolls_back_on_registry_failure(
     assert not new_data.exists()
     assert 'old' in container_registry
     assert 'new' not in container_registry
+
+
+def test_container_rename_rollback_session_write_failure(
+        manager, container_registry, message_mock, caplog, monkeypatch):
+    container_registry.add('old', '#111111')
+    data, _cache = make_storage(container_registry, 'old')
+    manager.new_session('a', container='old')
+    manager.new_session('b', container='old')
+    real_write = sessionfile.write
+    rolling_back = False
+
+    def fail_registry(*_args, **_kwargs):
+        nonlocal rolling_back
+        rolling_back = True
+        raise containers.Error('disk full')
+
+    def write(path, session_data):
+        if rolling_back and path.name == 'a.yml':
+            raise sessionfile.SessionFileError('read-only')
+        real_write(path, session_data)
+
+    monkeypatch.setattr(container_registry, '_write', fail_registry)
+    monkeypatch.setattr(sessionfile, 'write', write)
+    # Adopting new can't write the registry either, and reports that.
+    with caplog.at_level(logging.ERROR), pytest.raises(
+            cmdutils.CommandError, match=r'disk full.*a \(read-only\)'):
+        containercommands.container_rename('old', 'new')
+
+    assert manager.get('a').container == 'new'
+    assert manager.get('b').container == 'old'
+    assert 'new' in container_registry
+    assert 'old' in container_registry
+    new_data, _new_cache = container_registry.storage_paths('new')
+    assert (new_data / 'Cookies').read_text(encoding='utf-8') == 'x'
+    assert not data.exists()
