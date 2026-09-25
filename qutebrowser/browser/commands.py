@@ -24,9 +24,9 @@ from qutebrowser.keyinput import modeman, keyutils
 from qutebrowser.utils import (message, usertypes, log, qtutils, urlutils,
                                objreg, utils, standarddir, debug)
 from qutebrowser.utils.usertypes import KeyMode
-from qutebrowser.misc import editor, guiprocess, objects
+from qutebrowser.misc import editor, guiprocess, objects, closedwindows
 from qutebrowser.completion.models import urlmodel, miscmodels
-from qutebrowser.mainwindow import mainwindow, windowundo, windowsessions
+from qutebrowser.mainwindow import mainwindow, windowsessions
 
 
 class CommandDispatcher:
@@ -883,14 +883,18 @@ class CommandDispatcher:
             raise cmdutils.CommandError(
                 ":undo --window does not support a count/depth")
 
+        if window:
+            try:
+                closedwindows.undo_newest()
+            except closedwindows.Error as e:
+                raise cmdutils.CommandError(str(e))
+            return
+
         try:
-            if window:
-                windowundo.instance.undo_last_window_close()
-            else:
-                self._tabbed_browser.undo(depth)
+            self._tabbed_browser.undo(depth)
         except IndexError:
             msg = "Nothing to undo"
-            if not window and not has_depth:
+            if not has_depth:
                 msg += " (use :undo --window to reopen a closed window)"
             raise cmdutils.CommandError(msg)
 
