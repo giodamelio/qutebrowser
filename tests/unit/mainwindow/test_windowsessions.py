@@ -13,7 +13,7 @@ pytest.importorskip('qutebrowser.qt.webenginecore')
 
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.mainwindow import mainwindow, windowsessions, windowundo
-from qutebrowser.misc import sessionfile
+from qutebrowser.misc import sessioncommands, sessionfile
 from qutebrowser.utils import objreg, qtutils, usertypes
 
 
@@ -112,6 +112,7 @@ def fake_mainwindow(monkeypatch, manager, windows):
 
     monkeypatch.setattr(mainwindow, 'MainWindow', make)
     monkeypatch.setattr(sessionfile, 'restore_window', restore)
+    return make
 
 
 def open_list(state_config):
@@ -562,3 +563,46 @@ def test_undo_window_restores_closed_default(manager, windows, base_path,
     manager.save_dirty()
 
     assert saved(base_path, 'default') == [{'win': 10}, {'win': 11}]
+
+
+@pytest.fixture
+def work_with_bad_window(manager, base_path, monkeypatch, fake_mainwindow):
+    work = manager.new_session('work')
+    work.saved_windows = [{'win': 'a'}, {'bad': True}]
+    sessionfile.write(base_path / 'work.yml',
+                      sessionfile.SessionData(windows=work.saved_windows))
+
+    def restore(data, session, *, show=True):
+        if data.get('bad'):
+            raise sessionfile.SessionFileError('bad window')
+        return fake_mainwindow(session=session)
+
+    monkeypatch.setattr(sessionfile, 'restore_window', restore)
+    return work
+
+
+def test_open_session_moves_file_aside_when_a_window_fails(
+        manager, base_path, work_with_bad_window, message_mock, caplog):
+    original = (base_path / 'work.yml').read_text()
+    with caplog.at_level(logging.ERROR):
+        sessioncommands.open_session(work_with_bad_window)
+
+    broken = base_path / 'work.yml.broken'
+    assert broken.read_text() == original
+    assert any(str(broken) in msg.text for msg in message_mock.messages)
+
+    manager.save_dirty()
+    assert saved(base_path, 'work') == [{'win': 10}]
+    assert broken.read_text() == original
+
+
+def test_open_session_refuses_saving_when_broken_file_exists(
+        manager, base_path, work_with_bad_window, message_mock, caplog):
+    original = (base_path / 'work.yml').read_text()
+    (base_path / 'work.yml.broken').write_text('already here\n')
+    with caplog.at_level(logging.ERROR):
+        sessioncommands.open_session(work_with_bad_window)
+        manager.save_dirty()
+
+    assert (base_path / 'work.yml').read_text() == original
+    assert (base_path / 'work.yml.broken').read_text() == 'already here\n'

@@ -22,8 +22,8 @@ def open_session(session: windowsessions.Session, *,
         try:
             windows.append(sessionfile.restore_window(data, session, show=show))
         except sessionfile.SessionFileError as e:
-            message.error(f"Failed to restore a window of session "
-                          f"{session.name}: {e}")
+            message.error(f"Failed to restore a window: {e}")
+            windowsessions.manager.move_aside(session)
     if not windows:
         window = mainwindow.MainWindow(session=session)
         if fill_start_pages:

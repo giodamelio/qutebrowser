@@ -6,6 +6,7 @@
 
 import logging
 import textwrap
+import types
 
 import pytest
 QtWebEngineCore = pytest.importorskip("qutebrowser.qt.webenginecore")
@@ -13,7 +14,10 @@ QWebEnginePage = QtWebEngineCore.QWebEnginePage
 QWebEngineScriptCollection = QtWebEngineCore.QWebEngineScriptCollection
 QWebEngineScript = QtWebEngineCore.QWebEngineScript
 
+from qutebrowser.qt.core import QUrl
+
 from qutebrowser.browser import greasemonkey
+from qutebrowser.misc import sessionfile
 from qutebrowser.utils import usertypes
 webenginetab = pytest.importorskip(
     "qutebrowser.browser.webengine.webenginetab")
@@ -244,3 +248,13 @@ class TestWebEnginePermissions:
             pytest.skip("enum member not available")
         assert clipboard in permissions_cls._options
         assert clipboard in permissions_cls._messages
+
+
+def test_load_items_without_active_item_loads_last():
+    loaded = []
+    history = types.SimpleNamespace(
+        _tab=types.SimpleNamespace(load_url=loaded.append))
+    items = [sessionfile.TabHistoryItem(QUrl('https://a.example/'), 'a'),
+             sessionfile.TabHistoryItem(QUrl('https://b.example/'), 'b')]
+    webenginetab.WebEngineHistoryPrivate._load_items_workaround(history, items)
+    assert loaded == [QUrl('https://b.example/')]

@@ -184,30 +184,39 @@ class SessionManager:
             try:
                 data = sessionfile.read(path)
             except sessionfile.SessionFileError as e:
-                self._quarantine(name, path, e)
+                if name == DEFAULT_NAME:
+                    self._quarantine(name, path, f"Skipping session {name}: {e}")
+                else:
+                    self._unreadable.add(name)
+                    message.error(f"Skipping session {name}: {e}")
                 continue
             session = Session(name, private=False, container=data.container)
             session.saved_windows = data.windows
             session.closed_windows = data.closed_windows
             self._sessions[name] = session
 
-    def _quarantine(self, name: str, path: pathlib.Path,
-                    error: sessionfile.SessionFileError) -> None:
-        """Keep an unreadable session file from ever being overwritten."""
-        if name != DEFAULT_NAME:
-            self._unreadable.add(name)
-            message.error(f"Skipping session {name}: {error}")
-            return
+    def _quarantine(self, name: str, path: pathlib.Path, reason: str) -> None:
+        """Keep a session file that can't be used from ever being overwritten."""
         broken_path = path.parent / f'{path.name}.broken'
         if broken_path.exists():
             self._unreadable.add(name)
             message.error(
-                f"Skipping session {name}: {error}. {path} could not be "
-                f"moved aside because {broken_path} already exists.")
+                f"{reason}. {path} could not be moved aside because "
+                f"{broken_path} already exists.")
             return
         path.rename(broken_path)
-        message.error(
-            f"Skipping session {name}: {error}. Moved it to {broken_path}.")
+        message.error(f"{reason}. Moved it to {broken_path}.")
+
+    def move_aside(self, session: Session) -> None:
+        """Keep the file of a session that didn't fully restore.
+
+        Saving the windows that did restore would otherwise drop the rest.
+        """
+        path = self.path_for(session)
+        if session.name in self._unreadable or not path.exists():
+            return
+        self._quarantine(session.name, path,
+                         f"Session {session.name} did not fully restore")
 
     def saved_open_names(self) -> list[str]:
         """Get the sessions the state file lists as open."""

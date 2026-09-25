@@ -648,6 +648,8 @@ class WebEngineHistoryPrivate(browsertab.AbstractHistoryPrivate):
             if item.active:
                 cur_idx = i
                 break
+        else:
+            cur_idx = len(items) - 1
 
         url = items[cur_idx].url
         if (url.scheme(), url.host()) == ('qute', 'back') and cur_idx >= 1:
