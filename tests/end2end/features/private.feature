@@ -260,3 +260,11 @@ Feature: Using private browsing
               - history:
                 - url: http://localhost:*/data/numbers/2.txt
             """
+
+    Scenario: Closing a private window adds nothing to window undo
+        When I run :debug-close-other-sessions
+        And I open about:blank in a private window
+        And I run :close
+        And I wait for "removed: main-window" in the log
+        And I run :undo --window
+        Then the error "Nothing to undo" should be shown

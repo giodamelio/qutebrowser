@@ -7,6 +7,7 @@
 import os
 import pathlib
 import signal
+import uuid
 import configparser
 import sqlite3
 import subprocess
@@ -1204,3 +1205,56 @@ def test_last_regular_window_close_keeps_session_with_private_open(
     state.read(pathlib.Path(str(short_tmpdir), 'data', 'state'),
                encoding='utf-8')
     assert state['general']['open_sessions'] == 'default'
+
+
+def _files_containing(root: pathlib.Path, needle: bytes) -> list[str]:
+    """Get every file below root whose raw bytes contain needle."""
+    return sorted(str(path.relative_to(root)) for path in root.rglob('*')
+                  if path.is_file() and needle in path.read_bytes())
+
+
+@pytest.mark.parametrize('ending', ['quit', 'kill', 'restart'])
+def test_private_session_leaves_no_trace(request, quteproc_new, short_tmpdir,
+                                         ending):
+    """Nothing from a private session reaches disk."""
+    basedir = pathlib.Path(str(short_tmpdir))
+    private_token = f'qute-no-trace-{uuid.uuid4().hex}'
+    regular_token = f'qute-trace-{uuid.uuid4().hex}'
+    args = _base_args(request.config) + ['--basedir', str(basedir)]
+    quteproc_new.start(args)
+
+    # A regular page must be found, or the search can't see into the files
+    # at all and a clean result would prove nothing.
+    quteproc_new.open_path(f'data/hello.txt?{regular_token}')
+    quteproc_new.open_path(f'data/hello2.txt?{private_token}', private=True)
+    quteproc_new.send_cmd(':session-close private-1')
+    quteproc_new.wait_for(message='removed: main-window')
+
+    if ending == 'quit':
+        quteproc_new.send_cmd(':quit')
+        quteproc_new.wait_for_quit()
+    elif ending == 'kill':
+        quteproc_new.exit_expected = True
+        quteproc_new.proc.kill()
+        quteproc_new.proc.waitForFinished()
+    else:
+        quteproc_new.send_cmd(':restart')
+        prefix = "New process PID: "
+        line = quteproc_new.wait_for(message=f"{prefix}*")
+        quteproc_new.wait_for_quit()
+        pid = int(line.message.removeprefix(prefix))
+        os.kill(pid, signal.SIGTERM)
+        # The new process is the old one's child, not ours, so poll instead of
+        # waitpid() until it has finished writing and exited.
+        deadline = time.monotonic() + 20
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            if time.monotonic() > deadline:
+                pytest.fail(f"Restarted process {pid} didn't exit")
+            time.sleep(0.1)
+
+    assert _files_containing(basedir, regular_token.encode('ascii'))
+    assert _files_containing(basedir, private_token.encode('ascii')) == []
