@@ -60,6 +60,9 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<config-source,config-source>>|Read a config.py file.
 |<<config-unset,config-unset>>|Unset an option.
 |<<config-write-py,config-write-py>>|Write the current configuration to a config.py file.
+|<<container-delete,container-delete>>|Delete a runtime container and its data.
+|<<container-new,container-new>>|Create a runtime container.
+|<<container-rename,container-rename>>|Rename a runtime container, its data, and the sessions using it.
 |<<devtools,devtools>>|Toggle the developer tools (web inspector).
 |<<devtools-focus,devtools-focus>>|Toggle focus between the devtools/tab.
 |<<download,download>>|Download a given URL, or current page if no URL given.
@@ -523,6 +526,37 @@ Write the current configuration to a config.py file.
 ==== optional arguments
 * +*-f*+, +*--force*+: Force overwriting existing files.
 * +*-d*+, +*--defaults*+: Write the defaults instead of values configured via :set.
+
+[[container-delete]]
+=== container-delete
+Syntax: +:container-delete 'name'+
+
+Delete a runtime container and its data.
+
+==== positional arguments
+* +'name'+: The name of the container.
+
+[[container-new]]
+=== container-new
+Syntax: +:container-new [*--color* 'color'] 'name'+
+
+Create a runtime container.
+
+==== positional arguments
+* +'name'+: The name of the new container.
+
+==== optional arguments
+* +*-c*+, +*--color*+: The container's color.
+
+[[container-rename]]
+=== container-rename
+Syntax: +:container-rename 'old' 'new'+
+
+Rename a runtime container, its data, and the sessions using it.
+
+==== positional arguments
+* +'old'+: The current name of the container.
+* +'new'+: The new name.
 
 [[devtools]]
 === devtools
