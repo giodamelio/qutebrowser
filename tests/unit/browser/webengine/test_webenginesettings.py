@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import logging
+import pathlib
 
 import pytest
 
@@ -169,3 +170,36 @@ def test_parsed_user_agent(qapp):
 def test_profile_setter_settings(private_profile, configdata_init):
     for setting in private_profile.setter._name_to_method:
         assert setting in set(configdata.DATA)
+
+
+def test_container_profile_paths(container_registry, data_tmpdir,
+                                 cache_tmpdir):
+    container_registry.add('work', '#111111')
+    profile = webenginesettings._create_profile('work', False)
+    try:
+        assert not profile.isOffTheRecord()
+        assert profile.storageName() == 'work'
+        assert profile.persistentStoragePath() == str(
+            pathlib.Path(str(data_tmpdir)) / 'containers' / 'work')
+        assert profile.cachePath() == str(
+            pathlib.Path(str(cache_tmpdir)) / 'containers' / 'work')
+    finally:
+        profile.deleteLater()
+
+
+def test_clear_permissions_json_covers_containers(data_tmpdir):
+    data_dir = pathlib.Path(str(data_tmpdir))
+    permission_files = [
+        data_dir / 'webengine' / 'permissions.json',
+        data_dir / 'containers' / 'work' / 'permissions.json',
+    ]
+    for path in permission_files:
+        path.parent.mkdir(parents=True)
+        path.write_text('{}', encoding='utf-8')
+    cookies = data_dir / 'containers' / 'work' / 'Cookies'
+    cookies.write_text('', encoding='utf-8')
+
+    webenginesettings._clear_webengine_permissions_json()
+
+    assert not any(path.exists() for path in permission_files)
+    assert cookies.exists()

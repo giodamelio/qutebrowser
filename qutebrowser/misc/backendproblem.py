@@ -11,6 +11,7 @@ import html
 import enum
 import shutil
 import os.path
+import pathlib
 import argparse
 import dataclasses
 from typing import Any
@@ -25,7 +26,7 @@ from qutebrowser.qt.network import QSslSocket
 from qutebrowser.config import config, configfiles
 from qutebrowser.utils import (usertypes, version, qtutils, log, utils,
                                standarddir)
-from qutebrowser.misc import objects, msgbox, savemanager, quitter
+from qutebrowser.misc import containers, objects, msgbox, savemanager, quitter
 
 
 class _Result(enum.IntEnum):
@@ -307,10 +308,14 @@ class _BackendProblemChecker:
         else:
             return
 
-        service_worker_dir = os.path.join(
-            standarddir.data(), 'webengine', 'Service Worker')
-        bak_dir = service_worker_dir + '-bak'
-        if not os.path.exists(service_worker_dir):
+        for storage_dir in containers.all_storage_dirs():
+            self._nuke_service_workers(storage_dir / 'Service Worker', reason)
+
+    def _nuke_service_workers(self, service_worker_dir: pathlib.Path,
+                              reason: str) -> None:
+        bak_dir = service_worker_dir.with_name(
+            f'{service_worker_dir.name}-bak')
+        if not service_worker_dir.exists():
             return
 
         log.init.info(
@@ -318,7 +323,7 @@ class _BackendProblemChecker:
 
         # Keep one backup around - we're not 100% sure what persistent data
         # could be in there, but this folder can grow to ~300 MB.
-        if os.path.exists(bak_dir):
+        if bak_dir.exists():
             shutil.rmtree(bak_dir)
 
         shutil.move(service_worker_dir, bak_dir)

@@ -26,7 +26,7 @@ from qutebrowser.browser.webengine import (spell, webenginequtescheme, cookies,
                                            profiles)
 from qutebrowser.config import config, websettings
 from qutebrowser.config.websettings import AttributeInfo as Attr
-from qutebrowser.misc import pakjoy
+from qutebrowser.misc import containers, pakjoy
 from qutebrowser.utils import (standarddir, qtutils, message, log,
                                urlmatch, usertypes, objreg, version, utils)
 if TYPE_CHECKING:
@@ -472,13 +472,14 @@ def _clear_webengine_permissions_json():
     This needs to be called before we call `setPersistentStoragePath()`
     because Qt will load the file during that.
     """
-    permissions_file = pathlib.Path(standarddir.data()) / "webengine" / "permissions.json"
-    try:
-        permissions_file.unlink(missing_ok=True)
-    except OSError as err:
-        log.init.warning(
-            f"Error while cleaning up webengine permissions file: {err}"
-        )
+    for storage_dir in containers.all_storage_dirs():
+        permissions_file = storage_dir / "permissions.json"
+        try:
+            permissions_file.unlink(missing_ok=True)
+        except OSError as err:
+            log.init.warning(
+                f"Error while cleaning up webengine permissions file: {err}"
+            )
 
 
 def default_qt_profile() -> QWebEngineProfile:
@@ -522,11 +523,19 @@ def _create_profile(key: str, private: bool) -> QWebEngineProfile:
         assert profile.isOffTheRecord()
         return profile
 
-    assert key == profiles.DEFAULT_KEY, key
-    profile = default_qt_profile()
+    if key == profiles.DEFAULT_KEY:
+        profile = default_qt_profile()
+        assert not profile.isOffTheRecord()
+        profile.setCachePath(os.path.join(standarddir.cache(), 'webengine'))
+        profile.setPersistentStoragePath(
+            os.path.join(standarddir.data(), 'webengine'))
+        return profile
+
+    data_path, cache_path = containers.registry.storage_paths(key)
+    profile = QWebEngineProfile(key)
     assert not profile.isOffTheRecord()
-    profile.setCachePath(os.path.join(standarddir.cache(), 'webengine'))
-    profile.setPersistentStoragePath(os.path.join(standarddir.data(), 'webengine'))
+    profile.setCachePath(str(cache_path))
+    profile.setPersistentStoragePath(str(data_path))
     return profile
 
 
