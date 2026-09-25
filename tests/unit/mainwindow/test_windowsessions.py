@@ -863,5 +863,5 @@ def test_rename_container_write_failure(manager, container_registry,
         raise sessionfile.SessionFileError('disk full')
 
     monkeypatch.setattr(sessionfile, 'write', fail)
-    assert manager.rename_container('old', 'new') == ['a']
+    assert manager.rename_container('old', 'new') == [('a', 'disk full')]
     assert manager.get('a').container == 'old'

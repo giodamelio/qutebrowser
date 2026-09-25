@@ -24,6 +24,10 @@ def _runtime_container(name: str, action: str) -> None:
             f"Container {name} is declared in config.py, {action} it there")
 
 
+def _describe_failures(failed: list[tuple[str, str]]) -> str:
+    return ', '.join(f'{name} ({error})' for name, error in failed)
+
+
 def _check_unloaded(name: str) -> None:
     if profiles.get_registry().is_loaded(name):
         raise cmdutils.CommandError(
@@ -101,7 +105,15 @@ def container_rename(old: str, new: str) -> None:
         # The sessions and the directories already moved to new, but the
         # registry itself didn't, so put everything back on old rather than
         # leave sessions pointing at a container that doesn't exist.
-        windowsessions.manager.rename_container(old=new, new=old)
+        stuck = windowsessions.manager.rename_container(old=new, new=old)
+        if stuck:
+            # Moving the directories back would leave these sessions without
+            # their data, so it stays with them and new is kept defined.
+            windowsessions.manager.adopt_containers()
+            raise cmdutils.CommandError(
+                f"{e} (and rolling back to {old} failed for these sessions, "
+                f"which stay on container {new} with its data, while "
+                f"container {old} is left empty: {_describe_failures(stuck)})")
         try:
             containers.registry.move_storage(old=new, new=old)
         except containers.Error as rollback_e:
@@ -110,5 +122,6 @@ def container_rename(old: str, new: str) -> None:
         raise cmdutils.CommandError(str(e))
     if failed:
         raise cmdutils.CommandError(
-            f"Renamed container {old} to {new}, but sessions still use "
-            f"{old}: {', '.join(failed)}")
+            f"Renamed container {old} to {new}, but these sessions still use "
+            f"{old}, and their data now lives under container {new}: "
+            f"{_describe_failures(failed)}")
