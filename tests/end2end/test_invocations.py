@@ -15,6 +15,7 @@ import importlib
 import re
 import json
 import platform
+import time
 from contextlib import nullcontext as does_not_raise
 from unittest.mock import ANY
 
@@ -366,6 +367,49 @@ def test_session_close_last_session_opens_default_next_time(
     quteproc_new.compare_session("""
         windows:
             - session: default
+    """)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
+def test_session_survives_kill(request, quteproc_new, short_tmpdir):
+    """Autosave writes changes to disk without a clean quit."""
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
+    quteproc_new.start(args)
+
+    # Wait for startup to settle on its about:blank start page before opening
+    # another page, so the eventual save can only be explained by the load
+    # below marking the session dirty - not by the startup save racing it.
+    path = pathlib.Path(str(short_tmpdir), 'data', 'sessions', 'default.yml')
+    quteproc_new.wait_for(message='Saved session default')
+    deadline = time.monotonic() + 5
+    while not (path.exists() and 'about:blank' in path.read_text(encoding='utf-8')):
+        if time.monotonic() > deadline:
+            pytest.fail(f"{path} never settled on the about:blank start page")
+        time.sleep(0.2)
+
+    quteproc_new.open_path('data/numbers/3.txt')
+
+    deadline = time.monotonic() + 7
+    while 'numbers/3.txt' not in path.read_text(encoding='utf-8'):
+        if time.monotonic() > deadline:
+            pytest.fail(f"{path} never got the opened page")
+        time.sleep(0.2)
+
+    quteproc_new.exit_expected = True
+    quteproc_new.proc.kill()
+    quteproc_new.proc.waitForFinished()
+
+    quteproc_new.start(args)
+    quteproc_new.wait_for_load_finished('data/numbers/3.txt')
+    # QtWebEngine tabs only restore their active URL, not the full back
+    # history - see _load_items_workaround in webenginetab.py.
+    quteproc_new.compare_session("""
+        windows:
+            - session: default
+              tabs:
+              - history:
+                - url: http://localhost:*/data/numbers/3.txt
     """)
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()

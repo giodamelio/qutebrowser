@@ -627,6 +627,12 @@ class MainWindow(QWidget):
         self._update_overlay_geometries()
         self._downloadview.updateGeometry()
         self.tabbed_browser.widget.tab_bar().refresh()
+        windowsessions.manager.mark_dirty(self.session)
+
+    def moveEvent(self, e):
+        """Save a moved window's new position with its session."""
+        super().moveEvent(e)
+        windowsessions.manager.mark_dirty(self.session)
 
     def showEvent(self, e):
         """Extend showEvent to register us as the last-visible-main-window.

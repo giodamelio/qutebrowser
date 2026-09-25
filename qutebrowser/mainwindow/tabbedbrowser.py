@@ -20,7 +20,7 @@ from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QTimer, QUrl, QPoint
 
 from qutebrowser.config import config
 from qutebrowser.keyinput import modeman
-from qutebrowser.mainwindow import tabwidget, mainwindow
+from qutebrowser.mainwindow import tabwidget, mainwindow, windowsessions
 from qutebrowser.browser import signalfilter, browsertab, history
 from qutebrowser.utils import (log, usertypes, utils, qtutils,
                                urlutils, message, jinja, version)
@@ -210,6 +210,9 @@ class TabbedBrowser(QWidget):
         self.widget.new_tab_requested.connect(
             self.tabopen)  # type: ignore[arg-type,unused-ignore]
         self.widget.currentChanged.connect(self._on_current_changed)
+        self.widget.currentChanged.connect(self._mark_session_dirty)
+        self.widget.tab_bar().tabMoved.connect(self._mark_session_dirty)
+        self.new_tab.connect(self._mark_session_dirty)
         self.cur_fullscreen_requested.connect(self.widget.tab_bar().maybe_hide)
 
         self.widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -246,6 +249,10 @@ class TabbedBrowser(QWidget):
     @property
     def is_private(self) -> bool:
         return self.session.private
+
+    def _mark_session_dirty(self, *_args: Any) -> None:
+        if not self.is_shutting_down:
+            windowsessions.manager.mark_dirty(self.session)
 
     def _update_stack_size(self):
         newsize = config.instance.get('tabs.undo_stack_size')
@@ -327,6 +334,7 @@ class TabbedBrowser(QWidget):
 
     def _connect_tab_signals(self, tab):
         """Set up the needed signals for tab."""
+        tab.pinned_changed.connect(self._mark_session_dirty)
         # filtered signals
         tab.link_hovered.connect(
             self._filter.create(self.cur_link_hovered, tab))
@@ -465,6 +473,7 @@ class TabbedBrowser(QWidget):
             return
 
         self._remove_tab(tab, add_undo=add_undo, new_undo=new_undo)
+        self._mark_session_dirty()
 
         if count == 1:  # We just closed the last tab above.
             if last_close == 'close':
@@ -960,6 +969,7 @@ class TabbedBrowser(QWidget):
         except TabDeletedError:
             # We can get signals for tabs we already deleted...
             return
+        self._mark_session_dirty()
         if ok:
             start = config.cache['colors.tabs.indicator.start']
             stop = config.cache['colors.tabs.indicator.stop']
