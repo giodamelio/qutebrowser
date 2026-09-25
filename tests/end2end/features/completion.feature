@@ -48,18 +48,6 @@ Feature: Using completion
         When I run :cmd-set-text -s :bind X
         Then the completion model should be bind
 
-    # See #2956
-    @flaky
-    Scenario: Using session completion
-        Given I open data/hello.txt
-        And I run :session-save hello
-        When I run :cmd-set-text -s :session-load
-        And I run :completion-item-focus next
-        And I run :completion-item-focus next
-        And I run :session-delete hello
-        And I run :command-accept
-        Then the error "Session hello not found!" should be shown
-
     Scenario: Using option completion
         When I run :cmd-set-text -s :set
         Then the completion model should be option

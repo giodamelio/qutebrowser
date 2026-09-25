@@ -10,7 +10,7 @@ pytest.importorskip('qutebrowser.qt.webenginecore')
 
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.mainwindow import windowsessions
-from qutebrowser.misc import sessions, sessionfile
+from qutebrowser.misc import sessionfile
 from qutebrowser.utils import objreg, qtutils, usertypes
 
 
@@ -143,32 +143,6 @@ def test_new_private_single_process(manager, monkeypatch):
     with pytest.raises(windowsessions.PrivateUnavailableError):
         manager.new_private()
     assert manager.private_sessions() == []
-
-
-def test_legacy_session_load_groups_private_windows(manager, tmp_path,
-                                                    monkeypatch, qapp):
-    (tmp_path / 'legacy.yml').write_text(
-        "windows:\n"
-        "- private: true\n"
-        "  geometry: null\n"
-        "  tabs: []\n"
-        "- private: true\n"
-        "  geometry: null\n"
-        "  tabs: []\n"
-        "- geometry: null\n"
-        "  tabs: []\n",
-        encoding='utf-8')
-    sess_man = sessions.SessionManager(base_path=str(tmp_path))
-    loaded = []
-    monkeypatch.setattr(sess_man, '_load_window',
-                        lambda _win, session: loaded.append(session))
-
-    sess_man.load('legacy')
-
-    first, second, third = loaded
-    assert first.private
-    assert first is second
-    assert third is manager.default
 
 
 @pytest.mark.parametrize('name', ['work', 'a', 'aws-prod', 'x_1', '9lives'])

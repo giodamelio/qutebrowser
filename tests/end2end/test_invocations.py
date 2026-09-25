@@ -5,6 +5,7 @@
 """Test starting qutebrowser with special arguments/environments."""
 
 import os
+import pathlib
 import signal
 import configparser
 import subprocess
@@ -265,21 +266,67 @@ def test_initial_private_window_target(request, quteproc_new):
     quteproc_new.wait_for_quit()
 
 
-def test_loading_empty_session(tmp_path, request, quteproc_new):
-    """Make sure loading an empty session opens a window."""
-    session = tmp_path / 'session.yml'
-    session.write_text('windows: []')
-
-    args = _base_args(request.config) + ['--temp-basedir', '-r', str(session)]
+def test_loading_empty_session(request, quteproc_new, short_tmpdir):
+    """An open session without saved windows opens one new window."""
+    sessions_dir = pathlib.Path(str(short_tmpdir)) / 'data' / 'sessions'
+    sessions_dir.mkdir(parents=True)
+    (sessions_dir / 'default.yml').write_text('container: default\nwindows: []\n')
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
     quteproc_new.start(args)
 
     quteproc_new.compare_session("""
         windows:
-            - tabs:
+            - session: default
+              tabs:
               - history:
                 - url: about:blank
     """)
 
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
+def test_quit_restores_open_sessions(request, quteproc_new, short_tmpdir):
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
+    quteproc_new.start(args)
+    quteproc_new.open_path('data/numbers/1.txt')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    quteproc_new.wait_for_load_finished('data/numbers/1.txt')
+    # QtWebEngine tabs only restore their active URL, not the full back
+    # history - see _load_items_workaround in webenginetab.py.
+    quteproc_new.compare_session("""
+        windows:
+            - session: default
+              tabs:
+              - history:
+                - url: http://localhost:*/data/numbers/1.txt
+    """)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
+def test_last_window_close_keeps_session(request, quteproc_new, short_tmpdir):
+    """Closing the browser's last window behaves like quitting."""
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
+    quteproc_new.start(args)
+    quteproc_new.open_path('data/numbers/2.txt')
+    quteproc_new.send_cmd(':close')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    # QtWebEngine tabs only restore their active URL, not the full back
+    # history - see _load_items_workaround in webenginetab.py.
+    quteproc_new.compare_session("""
+        windows:
+            - session: default
+              tabs:
+              - history:
+                - url: http://localhost:*/data/numbers/2.txt
+    """)
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()
 
@@ -486,6 +533,10 @@ def test_service_worker_workaround(
     quteproc_new.start(args)
     quteproc_new.open_path('data/service-worker/index.html')
     server.wait_for(verb='GET', path='/data/service-worker/data.json')
+    # Sessions restore at startup now, so leave the tab on about:blank before
+    # quitting - otherwise the second invocation would re-visit the
+    # service-worker page and re-create the directory it's meant to remove.
+    quteproc_new.open_path('about:blank')
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()
     assert service_worker_dir.exists()

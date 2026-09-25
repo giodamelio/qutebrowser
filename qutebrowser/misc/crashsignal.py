@@ -286,7 +286,7 @@ class CrashHandler(QObject):
                 info.objects)
             ret = self._crash_dialog.exec()
             if ret == crashdialog.Result.restore:
-                self._quitter.restart(info.pages)
+                self._quitter.restart(save_sessions=False)
 
         # We might risk a segfault here, but that's better than continuing to
         # run in some undefined state, so we only do the most needed shutdown

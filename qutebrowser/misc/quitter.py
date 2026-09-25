@@ -16,7 +16,7 @@ import functools
 import warnings
 import subprocess
 from typing import cast
-from collections.abc import Iterable, Mapping, MutableSequence, Sequence
+from collections.abc import Mapping, Sequence
 
 from qutebrowser.qt.core import QObject, pyqtSignal, QTimer
 try:
@@ -27,9 +27,8 @@ except ImportError:
 import qutebrowser
 from qutebrowser.api import cmdutils
 from qutebrowser.utils import log, qtlog
-from qutebrowser.misc import sessions, ipc, objects
-from qutebrowser.mainwindow import prompt
-from qutebrowser.completion.models import miscmodels
+from qutebrowser.misc import ipc, objects
+from qutebrowser.mainwindow import prompt, windowsessions
 
 
 instance = cast('Quitter', None)
@@ -61,7 +60,7 @@ class Quitter(QObject):
 
     def on_last_window_closed(self) -> None:
         """Slot which gets invoked when the last window was closed."""
-        self.shutdown(last_window=True)
+        self.shutdown()
 
     def _compile_modules(self) -> None:
         """Compile all modules to catch SyntaxErrors."""
@@ -83,15 +82,11 @@ class Quitter(QObject):
                         compile(f.read(), fn, 'exec')
 
     def _get_restart_args(
-            self, pages: Iterable[str] = (),
-            session: str | None = None,
-            override_args: Mapping[str, str] | None = None
+            self, override_args: Mapping[str, str] | None = None
     ) -> Sequence[str]:
         """Get args to relaunch qutebrowser.
 
         Args:
-            pages: The pages to re-open.
-            session: The session to load, or None.
             override_args: Argument overrides as a dict.
 
         Return:
@@ -105,28 +100,14 @@ class Quitter(QObject):
         else:
             args = [sys.executable, '-m', 'qutebrowser']
 
-        # Add all open pages so they get reopened.
-        page_args: MutableSequence[str] = []
-        for win in pages:
-            page_args.extend(win)
-            page_args.append('')
-
         # Serialize the argparse namespace into json and pass that to the new
         # process via --json-args.
         # We do this as there's no way to "unparse" the namespace while
         # ignoring some arguments.
         argdict = vars(self._args)
-        argdict['session'] = None
         argdict['url'] = []
-        argdict['command'] = page_args[:-1]
+        argdict['command'] = []
         argdict['json_args'] = None
-        # Ensure the given session (or none at all) gets opened.
-        if session is None:
-            argdict['session'] = None
-            argdict['override_restore'] = True
-        else:
-            argdict['session'] = session
-            argdict['override_restore'] = False
         # Ensure :restart works with --temp-basedir
         if self._args.temp_basedir:
             argdict['temp_basedir'] = False
@@ -143,22 +124,17 @@ class Quitter(QObject):
 
         return args
 
-    def restart(self, pages: Sequence[str] = (),
-                session: str | None = None,
-                override_args: Mapping[str, str] | None = None) -> bool:
+    def restart(self, override_args: Mapping[str, str] | None = None, *,
+                save_sessions: bool = True) -> bool:
         """Inner logic to restart qutebrowser.
 
-        The "better" way to restart is to pass a session (_restart usually) as
-        that'll save the complete state.
-
-        However we don't do that (and pass a list of pages instead) when we
-        restart because of an exception, as that's a lot simpler and we don't
-        want to risk anything going wrong.
+        The new process reopens every open session from disk.
 
         Args:
-            pages: A list of URLs to open.
-            session: The session to load, or None.
             override_args: Argument overrides as a dict.
+            save_sessions: Save open sessions first. The crash handler passes
+                           False, because windows are already being torn down
+                           and the files are at most a few seconds old.
 
         Return:
             True if the restart succeeded, False otherwise.
@@ -169,9 +145,9 @@ class Quitter(QObject):
         log.destroy.debug("sys.argv: {}".format(sys.argv))
         log.destroy.debug("frozen: {}".format(hasattr(sys, 'frozen')))
 
-        # Save the session if one is given.
-        if session is not None:
-            sessions.session_manager.save(session, with_private=True)
+        # Backend problems restart before sessions are initialized.
+        if save_sessions and windowsessions.manager is not None:
+            windowsessions.manager.shutdown()
 
         # Make sure we're not accepting a connection from the new process
         # before we fully exited.
@@ -187,7 +163,7 @@ class Quitter(QObject):
 
         # Open a new process and immediately shutdown the existing one
         try:
-            args = self._get_restart_args(pages, session, override_args)
+            args = self._get_restart_args(override_args)
             proc = subprocess.Popen(args, env=env)  # pylint: disable=consider-using-with
         except OSError:
             log.destroy.exception("Failed to restart")
@@ -202,26 +178,22 @@ class Quitter(QObject):
             )
             return True
 
-    def shutdown(self, status: int = 0,
-                 session: sessions.ArgType | None = None,
-                 last_window: bool = False,
-                 is_restart: bool = False) -> None:
+    def shutdown(self, status: int = 0, is_restart: bool = False) -> None:
         """Quit qutebrowser.
 
         Args:
             status: The status code to exit with.
-            session: A session name if saving should be forced.
-            last_window: If the shutdown was triggered due to the last window
-                            closing.
             is_restart: If we're planning to restart.
         """
         if self.is_shutting_down:
             return
         self.is_shutting_down = True
-        log.destroy.debug("Shutting down with status {}, session {}...".format(
-            status, session))
+        log.destroy.debug("Shutting down with status {}...".format(status))
 
-        sessions.shutdown(session, last_window=last_window)
+        # Sessions are initialized after the quitter, so an early shutdown
+        # has none to save.
+        if windowsessions.manager is not None:
+            windowsessions.manager.shutdown()
         if prompt.prompt_queue is not None:
             prompt.prompt_queue.shutdown()
 
@@ -269,33 +241,16 @@ class Quitter(QObject):
 
 
 @cmdutils.register(name='quit')
-@cmdutils.argument('session', completion=miscmodels.session)
-def quit_(save: bool = False,
-          session: sessions.ArgType | None = None) -> None:
-    """Quit qutebrowser.
-
-    Args:
-        save: When given, save the open windows even if auto_save.session
-                is turned off.
-        session: The name of the session to save.
-    """
-    if session is not None and not save:
-        raise cmdutils.CommandError("Session name given without --save!")
-    if save and session is None:
-        session = sessions.default
-
-    instance.shutdown(session=session)
+def quit_() -> None:
+    """Quit qutebrowser, keeping every open session for the next start."""
+    instance.shutdown()
 
 
 @cmdutils.register()
 def restart() -> None:
-    """Restart qutebrowser while keeping existing tabs open."""
+    """Restart qutebrowser, reopening every open session."""
     try:
-        ok = instance.restart(session='_restart')
-    except sessions.SessionError as e:
-        log.destroy.exception("Failed to save session!")
-        raise cmdutils.CommandError("Failed to save session: {}!"
-                                    .format(e))
+        ok = instance.restart()
     except SyntaxError as e:
         log.destroy.exception("Got SyntaxError")
         raise cmdutils.CommandError("SyntaxError in {}:{}: {}".format(

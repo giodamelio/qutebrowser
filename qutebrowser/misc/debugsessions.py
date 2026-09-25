@@ -12,7 +12,7 @@ from typing import Any
 
 from qutebrowser.api import cmdutils
 from qutebrowser.mainwindow import windowsessions
-from qutebrowser.misc import sessionfile
+from qutebrowser.misc import sessionfile, sessioncommands
 from qutebrowser.qt import sip
 from qutebrowser.utils import message, objreg, utils
 
@@ -56,3 +56,18 @@ def debug_flush_sessions() -> None:
             except sessionfile.SessionFileError as e:
                 raise cmdutils.CommandError(str(e))
     message.info("Flushed sessions.")
+
+
+@cmdutils.register(debug=True)
+def debug_close_other_sessions() -> None:
+    """Close every window outside the default session.
+
+    A default window is opened first if the default session has none.
+    """
+    manager = windowsessions.manager
+    if not manager.default.is_open:
+        sessioncommands.open_session(manager.default)
+    for win_id in sorted(objreg.window_registry):
+        window = objreg.window_registry[win_id]
+        if not sip.isdeleted(window) and window.session is not manager.default:
+            window.close()
