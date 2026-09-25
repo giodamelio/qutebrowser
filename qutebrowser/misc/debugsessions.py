@@ -22,7 +22,7 @@ def debug_dump_windows(path: str) -> None:
     """Write every open window, including private ones, to a YAML file.
 
     The file has upstream's single-file session shape, plus the session each
-    window belongs to and its id.
+    window belongs to, its id and its title.
 
     Args:
         path: The file to write.
@@ -35,6 +35,7 @@ def debug_dump_windows(path: str) -> None:
         win_data = sessionfile.serialize_window(window)
         win_data['session'] = window.session.name
         win_data['win_id'] = win_id
+        win_data['title'] = window.windowTitle()
         if window.session.private:
             win_data['private'] = True
         data['windows'].append(win_data)
