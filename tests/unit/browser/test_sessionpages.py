@@ -311,3 +311,118 @@ def test_last_saved_permission_error(manager):
     manager.path_for = lambda _session: Unreadable()
 
     assert sessionpages._last_saved(session) == 'never'
+
+
+def closed_entry(closed_at, *titles):
+    return {'closed_at': closed_at, 'window': saved_window(*titles)}
+
+
+def local_time(when):
+    return when.astimezone().strftime('%Y-%m-%d %H:%M:%S')
+
+
+def test_sessions_page_closed_windows(manager, base_path):
+    newest = datetime.datetime(2026, 9, 24, 18, 3, 11,
+                               tzinfo=datetime.timezone.utc)
+    older = datetime.datetime(2026, 9, 23, 8, 0, 0,
+                              tzinfo=datetime.timezone.utc)
+    untitled = saved_window('')
+    write_session(base_path, 'hist', closed_windows=[
+        # Quoted in YAML, so it comes back as a string.
+        closed_entry('2026-09-24T18:03:11Z', 'Newest', 'Other'),
+        # Unquoted in YAML, so it comes back as a datetime.
+        closed_entry(older, 'Older'),
+        {'closed_at': '2026-09-22T12:00:00Z', 'window': untitled},
+        {'closed_at': 'not a time', 'window': {'tabs': []}},
+    ])
+    manager.load_all()
+
+    section = element(page(sessionpages.qute_sessions), 'section',
+                      'session-hist')
+
+    assert '<p class="history">4 closed windows:</p>' in section
+    assert (f'<tr><td class="index">1</td><td class="closed-at">'
+            f'{local_time(newest)}</td><td class="tabs">2</td>'
+            f'<td class="title">Newest</td><td class="mono">'
+            f':session-restore-window hist 1</td></tr>') in section
+    assert (f'<tr><td class="index">2</td><td class="closed-at">'
+            f'{local_time(older)}</td><td class="tabs">1</td>'
+            f'<td class="title">Older</td><td class="mono">'
+            f':session-restore-window hist 2</td></tr>') in section
+    assert ('<td class="title">http://example.com/0</td><td class="mono">'
+            ':session-restore-window hist 3</td>') in section
+    assert ('<tr><td class="index">4</td><td class="closed-at">not a time'
+            '</td><td class="tabs">0</td><td class="title"></td>') in section
+
+
+def test_sessions_page_no_closed_windows(manager):
+    section = element(page(sessionpages.qute_sessions), 'section',
+                      'session-default')
+    assert '<p class="history">No closed windows.</p>' in section
+
+
+def test_sessions_page_escapes_titles(manager, base_path):
+    write_session(base_path, 'esc', closed_windows=[
+        closed_entry('2026-09-24T18:03:11Z',
+                     '<script>alert("x")</script> & co'),
+    ])
+    manager.load_all()
+
+    html = page(sessionpages.qute_sessions)
+
+    assert '<script>alert' not in html
+    assert ('<td class="title">&lt;script&gt;alert(&#34;x&#34;)'
+            '&lt;/script&gt; &amp; co</td>') in html
+
+
+def test_sessions_page_malformed_closed_window_entries(manager, base_path):
+    # sessionfile.read requires each closed_windows entry to be a mapping,
+    # but not that its 'window' value is one, or that 'window.tabs' is a
+    # list: these come from hand-edited files and must not crash the page.
+    write_session(base_path, 'weird', closed_windows=[
+        {'closed_at': '2026-09-24T18:03:11Z'},
+        {'closed_at': '2026-09-24T18:03:11Z', 'window': 'not a mapping'},
+        {'closed_at': '2026-09-24T18:03:11Z', 'window': {'tabs': 'nope'}},
+        {'closed_at': '2026-09-24T18:03:11Z', 'window': {}},
+    ])
+    manager.load_all()
+
+    section = element(page(sessionpages.qute_sessions), 'section',
+                      'session-weird')
+
+    assert '<p class="history">4 closed windows:</p>' in section
+    assert section.count('<td class="tabs">0</td>') == 4
+
+
+def test_closed_windows_entry_not_a_mapping(manager):
+    # session.closed_windows can also be mutated directly in memory, so
+    # _closed_windows itself must not assume every entry is a mapping.
+    session = manager.new_session('odd')
+    session.closed_windows = ['garbage', {'closed_at': 'unknown'}]
+
+    rows = sessionpages._closed_windows(session)
+
+    assert [row.tabs for row in rows] == [0, 0]
+    assert [row.closed_at for row in rows] == ['unknown', 'unknown']
+
+
+@pytest.mark.parametrize('tabs', [
+    ['not-a-mapping'],
+    [{'history': 'sometext'}],
+    [{'history': ['not-a-mapping']}],
+    [{'history': []}],
+], ids=['tab-not-mapping', 'history-not-list', 'history-item-not-mapping',
+       'history-empty'])
+def test_sessions_page_closed_window_malformed_history(manager, base_path,
+                                                       tabs):
+    # tabs/history round-trip through sessionfile.read unvalidated, so a
+    # hand-edited file can put anything there; the page must still render.
+    write_session(base_path, 'badtab', closed_windows=[
+        {'closed_at': '2026-09-24T18:03:11Z', 'window': {'tabs': tabs}},
+    ])
+    manager.load_all()
+
+    section = element(page(sessionpages.qute_sessions), 'section',
+                      'session-badtab')
+
+    assert '<td class="title"></td>' in section
