@@ -625,6 +625,16 @@ class TestYaml:
         assert name not in yaml
 
 
+REMOVED_STATUSBAR_COLORS = [
+    'colors.statusbar.normal.fg',
+    'colors.statusbar.normal.bg',
+    'colors.statusbar.private.fg',
+    'colors.statusbar.private.bg',
+    'colors.statusbar.command.private.fg',
+    'colors.statusbar.command.private.bg',
+]
+
+
 class TestYamlMigrations:
 
     @pytest.fixture
@@ -651,6 +661,16 @@ class TestYamlMigrations:
 
         data = autoconfig.read()
         assert not data
+
+    @pytest.mark.parametrize('setting', REMOVED_STATUSBAR_COLORS)
+    def test_removed_statusbar_colors(self, yaml, autoconfig, setting):
+        """Colors the container color replaced are dropped silently."""
+        autoconfig.write({setting: {'global': 'red'}})
+
+        yaml.load()
+        yaml._save()
+
+        assert not autoconfig.read()
 
     def test_renamed_key(self, monkeypatch, yaml, autoconfig):
         """A key marked as renamed should be renamed properly."""
@@ -1276,6 +1296,15 @@ class TestConfigPy:
         expected = ("No option 'qt_args' (this option was renamed to "
                     "'qt.args')")
         assert str(error.exception) == expected
+
+    @pytest.mark.parametrize('option', REMOVED_STATUSBAR_COLORS)
+    def test_removed_statusbar_color(self, confpy, option):
+        confpy.write(f'config.set({option!r}, "red")')
+        error = confpy.read(error=True)
+        assert isinstance(error.exception, configexc.NoOptionError)
+        assert str(error.exception) == (
+            f"No option {option!r} (this option was removed from "
+            "qutebrowser)")
 
     @pytest.mark.parametrize('line, text', [
         ('config.get("content.images", "http://")',
