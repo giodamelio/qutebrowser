@@ -61,6 +61,11 @@ class SessionStateError(Error):
     """The session is in the wrong state for the operation."""
 
 
+class ProfileMismatchError(Error):
+
+    """Two sessions use different profiles, so tabs can't move between them."""
+
+
 def validate_name(name: str) -> None:
     """Check a session or container name, including `default`."""
     if not _NAME_RE.fullmatch(name):
@@ -113,6 +118,23 @@ class Session:
     @property
     def is_open(self) -> bool:
         return bool(self.windows)
+
+
+def _describe_profile(session: Session) -> str:
+    return 'private' if session.private else f'container {session.container}'
+
+
+def check_same_profile(source: Session, target: Session) -> None:
+    """Refuse to move tabs between sessions with different profiles.
+
+    A tab keeps the profile it was created in, so moving it would silently
+    change which cookies and storage it uses.
+    """
+    if source.profile_key != target.profile_key:
+        raise ProfileMismatchError(
+            f"Can't move tabs from session {source.name} "
+            f"({_describe_profile(source)}) to session {target.name} "
+            f"({_describe_profile(target)})")
 
 
 class _Debouncer:
