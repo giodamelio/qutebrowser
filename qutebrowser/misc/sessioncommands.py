@@ -5,6 +5,7 @@
 """Session commands, and opening sessions at startup."""
 
 from qutebrowser.api import cmdutils
+from qutebrowser.browser import sessionpages
 from qutebrowser.completion.models import miscmodels
 from qutebrowser.config import config
 from qutebrowser.mainwindow import mainwindow, prompt, windowsessions
@@ -219,3 +220,19 @@ def session_move_window(name: str, *, win_id: int | None = None) -> None:
     except sessionfile.SessionFileError as e:
         raise cmdutils.CommandError(
             f"Failed to save session {source.name}: {e}")
+
+
+@cmdutils.register()
+@cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+def session_list(tab: bool = False, bg: bool = False, window: bool = False,
+                 *, win_id: int | None = None) -> None:
+    """Show every session on qute://sessions.
+
+    Args:
+        tab: Open in a new tab.
+        bg: Open in a background tab.
+        window: Open in a new window.
+    """
+    assert win_id is not None
+    sessionpages.open_page('qute://sessions/', win_id, tab=tab, bg=bg,
+                           window=window)
