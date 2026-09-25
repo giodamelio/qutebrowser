@@ -167,6 +167,8 @@ class Quitter(QObject):
             proc = subprocess.Popen(args, env=env)  # pylint: disable=consider-using-with
         except OSError:
             log.destroy.exception("Failed to restart")
+            if save_sessions and windowsessions.manager is not None:
+                windowsessions.manager.resume()
             return False
         else:
             log.destroy.debug(f"New process PID: {proc.pid}")
@@ -255,8 +257,9 @@ def restart() -> None:
         log.destroy.exception("Got SyntaxError")
         raise cmdutils.CommandError("SyntaxError in {}:{}: {}".format(
             e.filename, e.lineno, e))
-    if ok:
-        instance.shutdown(is_restart=True)
+    if not ok:
+        raise cmdutils.CommandError("Restart failed")
+    instance.shutdown(is_restart=True)
 
 
 def init(args: argparse.Namespace) -> None:

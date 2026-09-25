@@ -398,6 +398,10 @@ class SessionManager:
         self._autosave.cancel()
         self._shutting_down = True
 
+    def resume(self) -> None:
+        """Save changes again after a restart failed to start the new process."""
+        self._shutting_down = False
+
     def _save_reporting(self, session: Session, *,
                         exclude: int | None = None) -> None:
         try:

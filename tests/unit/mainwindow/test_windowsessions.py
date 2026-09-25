@@ -606,3 +606,21 @@ def test_open_session_refuses_saving_when_broken_file_exists(
 
     assert (base_path / 'work.yml').read_text() == original
     assert (base_path / 'work.yml.broken').read_text() == 'already here\n'
+
+
+def test_resume_after_shutdown(manager, windows, base_path):
+    open_window(manager, windows, manager.default, 1)
+    manager.shutdown()
+    manager.resume()
+
+    open_window(manager, windows, manager.default, 2)
+    assert manager.default.dirty
+    manager._autosave._quiet.timeout.emit()
+    assert saved(base_path, 'default') == [{'win': 1}, {'win': 2}]
+
+
+def test_resume_without_shutdown(manager, windows, base_path):
+    manager.resume()
+    open_window(manager, windows, manager.default, 1)
+    manager.save_dirty()
+    assert saved(base_path, 'default') == [{'win': 1}]
