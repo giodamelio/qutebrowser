@@ -2399,6 +2399,8 @@ tabs.title.format:
       - scroll_pos
       - host
       - private
+      - session
+      - container
       - current_url
       - protocol
       - audio
@@ -2420,6 +2422,9 @@ tabs.title.format:
     * `{host}`: Host of the current web page.
     * `{backend}`: Either `webkit` or `webengine`
     * `{private}`: Indicates when private mode is enabled.
+    * `{session}`: Name of the window's session.
+    * `{container}`: Name of the window's container, empty in a private
+      session.
     * `{current_url}`: URL of the current web page.
     * `{protocol}`: Protocol (http/https/...) of the current web page.
     * `{audio}`: Indicator for audio/mute status.
@@ -2440,6 +2445,8 @@ tabs.title.format_pinned:
       - scroll_pos
       - host
       - private
+      - session
+      - container
       - current_url
       - protocol
       - audio
@@ -2677,6 +2684,8 @@ window.title_format:
       - host
       - backend
       - private
+      - session
+      - container
       - current_url
       - protocol
       - audio
