@@ -129,6 +129,7 @@ class _Debouncer:
         self._max_wait.timeout.connect(self._fire)
 
     def trigger(self) -> None:
+        """Restart the quiet timer, starting the max-wait timer on the first call."""
         self._quiet.start()
         if not self._max_wait.isActive():
             self._max_wait.start()
