@@ -2200,6 +2200,9 @@ statusbar.widgets:
       name: StatusbarWidget
       valid_values:
         - url: "Current page URL."
+        - session: "Name of the window's session."
+        - container: "Name of the window's container, or `(private)` in a
+          private session."
         - scroll: "Percentage of the current page position like `10%`."
         - scroll_raw: "Raw percentage of the current page position like `10`."
         - history: "Display an arrow when possible to go back/forward in
@@ -2214,7 +2217,7 @@ statusbar.widgets:
          https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes[the
          Python datetime documentation]."
     none_ok: true
-  default: ['keypress', 'search_match', 'url', 'scroll', 'history', 'tabs', 'progress']
+  default: ['session', 'container', 'keypress', 'search_match', 'url', 'scroll', 'history', 'tabs', 'progress']
   desc: "List of widgets displayed in the statusbar."
 
 ## tabs

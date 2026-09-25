@@ -17,7 +17,8 @@ from qutebrowser.utils import usertypes, log, objreg, utils
 from qutebrowser.mainwindow import windowsessions
 from qutebrowser.mainwindow.statusbar import (backforward, command, progress,
                                               keystring, percentage, url,
-                                              tabindex, textbase, clock, searchmatch)
+                                              tabindex, textbase, clock, searchmatch,
+                                              sessionbadge)
 
 
 @dataclasses.dataclass
@@ -123,6 +124,8 @@ class StatusBar(QWidget):
         prog: The Progress widget in the statusbar.
         cmd: The Command widget in the statusbar.
         search_match: The SearchMatch widget in the statusbar.
+        session_name: The badge with the window's session.
+        container_name: The badge with the window's container.
         _hbox: The main QHBoxLayout.
         _stack: The QStackedLayout with cmd/txt widgets.
         _win_id: The window ID the statusbar is associated with.
@@ -182,6 +185,9 @@ class StatusBar(QWidget):
         self.keystring = keystring.KeyString()
         self.prog = progress.Progress(self)
         self.clock = clock.Clock()
+        self.session_name = sessionbadge.SessionName()
+        self.container_name = sessionbadge.ContainerName()
+        self._update_badges()
         self._text_widgets = []
         self._draw_widgets()
 
@@ -191,7 +197,7 @@ class StatusBar(QWidget):
     def __repr__(self):
         return utils.get_repr(self)
 
-    def _get_widget_from_config(self, key):
+    def _get_widget_from_config(self, key):  # noqa: C901
         """Return the widget that fits with config string key."""
         if key == 'url':
             return self.url
@@ -209,6 +215,10 @@ class StatusBar(QWidget):
             return self.prog
         elif key == 'search_match':
             return self.search_match
+        elif key == 'session':
+            return self.session_name
+        elif key == 'container':
+            return self.container_name
         elif key.startswith('text:'):
             new_text_widget = textbase.TextBase()
             self._text_widgets.append(new_text_widget)
@@ -264,7 +274,9 @@ class StatusBar(QWidget):
         # Start with widgets hidden and show them when needed
         for widget in [self.url, self.percentage,
                        self.backforward, self.tabindex,
-                       self.keystring, self.prog, self.clock, *self._text_widgets]:
+                       self.keystring, self.prog, self.clock,
+                       self.session_name, self.container_name,
+                       *self._text_widgets]:
             assert isinstance(widget, QWidget)
             if widget in [self.prog, self.backforward]:
                 widget.enabled = False
@@ -329,8 +341,14 @@ class StatusBar(QWidget):
 
     @pyqtSlot()
     def on_session_changed(self):
-        """Show the colors of the window's current session."""
+        """Show the window's current session and its colors."""
         self._update_stylesheet()
+        self._update_badges()
+
+    def _update_badges(self):
+        session = self._session()
+        self.session_name.set_session(session)
+        self.container_name.set_session(session)
 
     def set_mode_active(self, mode, val):
         """Setter for self.{insert,command,caret}_active.

@@ -100,3 +100,32 @@ def test_session_changed(make_statusbar, window, container_registry):
                                             container='shop')
     statusbar.on_session_changed()
     assert session_rules(statusbar) == ('#2e7d32', '#ffffff')
+
+
+def test_badges_follow_session(make_statusbar, window, container_registry):
+    statusbar = make_statusbar(
+        windowsessions.Session('default', private=False))
+    assert statusbar.session_name.text() == 'default'
+    assert statusbar.container_name.text() == 'default'
+
+    container_registry.add('shop', 'yellow')
+    window.session = windowsessions.Session('work', private=False,
+                                            container='shop')
+    statusbar.on_session_changed()
+    assert statusbar.session_name.text() == 'work'
+    assert statusbar.container_name.text() == 'shop'
+    assert 'background-color: #ffff00;' in statusbar.container_name.styleSheet()
+
+
+def test_badges_in_widgets(make_statusbar, config_stub):
+    statusbar = make_statusbar(
+        windowsessions.Session('default', private=False))
+    hbox = statusbar._hbox
+    assert [hbox.indexOf(widget) for widget in [
+        statusbar.session_name, statusbar.container_name,
+        statusbar.keystring]] == [1, 2, 3]
+
+    config_stub.val.statusbar.widgets = ['url']
+    assert hbox.indexOf(statusbar.session_name) == -1
+    assert hbox.indexOf(statusbar.container_name) == -1
+    assert statusbar.session_name.isHidden()
