@@ -910,3 +910,84 @@ def test_check_same_profile(manager, container_registry):
     with pytest.raises(windowsessions.ProfileMismatchError,
                        match=r"to session default \(container default\)"):
         windowsessions.check_same_profile(first, manager.default)
+
+
+@pytest.mark.parametrize('color, expected', [
+    ('#2e7d32', ('#2e7d32', '#ffffff')),
+    ('yellow', ('#ffff00', '#000000')),
+    ('rgb(255, 255, 255)', ('#ffffff', '#000000')),
+    ('#808080', ('#808080', '#000000')),
+])
+def test_session_colors_container(container_registry, color, expected):
+    container_registry.add('shop', color)
+    session = windowsessions.Session('work', private=False, container='shop')
+    assert windowsessions.session_colors(session) == expected
+
+
+def test_session_colors_default(container_registry):
+    session = windowsessions.Session('default', private=False)
+    assert windowsessions.session_colors(session) == ('#3b4252', '#ffffff')
+
+
+def test_session_colors_declared_default(container_registry, config_stub):
+    config_stub.val.containers = {'default': {'color': 'silver'}}
+    container_registry.on_config_changed('containers')
+    session = windowsessions.Session('default', private=False)
+    assert windowsessions.session_colors(session) == ('#c0c0c0', '#000000')
+
+
+def test_session_colors_private(container_registry, config_stub):
+    session = windowsessions.Session('private-1', private=True)
+    assert windowsessions.session_colors(session) == ('#666666', '#ffffff')
+    config_stub.val.colors.statusbar.private_session = 'white'
+    assert windowsessions.session_colors(session) == ('#ffffff', '#000000')
+
+
+def test_rename_session_notifies(manager, qtbot):
+    manager.new_session('work')
+    with qtbot.wait_signal(windowsessions.notifier.changed):
+        manager.rename_session('work', 'play')
+    with qtbot.assert_not_emitted(windowsessions.notifier.changed):
+        with pytest.raises(windowsessions.SessionStateError):
+            manager.rename_session('default', 'other')
+
+
+def test_move_window_notifies(manager, windows, qtbot):
+    work = manager.new_session('work')
+    open_window(manager, windows, manager.default, 1)
+    moved = open_window(manager, windows, work, 2)
+    with qtbot.wait_signal(windowsessions.notifier.changed):
+        manager.move_window(moved, manager.default)
+
+
+def test_notifier_follows_colors(manager, container_registry, config_stub,
+                                 qtbot):
+    windowsessions.init()
+    with qtbot.wait_signal(windowsessions.notifier.changed):
+        config_stub.val.colors.statusbar.private_session = '#123456'
+    with qtbot.wait_signal(windowsessions.notifier.changed):
+        container_registry.add('shop', '#2e7d32')
+    with qtbot.assert_not_emitted(windowsessions.notifier.changed):
+        config_stub.val.colors.hints.fg = 'red'
+
+
+def test_colors_after_declared_container_removed(manager, container_registry,
+                                                 config_stub):
+    windowsessions.init()
+    config_stub.val.containers = {'decl': {'color': 'red'}}
+    container_registry.on_config_changed('containers')
+    session = windowsessions.manager.new_session('job', container='decl')
+    seen = []
+
+    def on_changed():
+        seen.append(windowsessions.session_colors(session))
+
+    windowsessions.notifier.changed.connect(on_changed)
+    try:
+        config_stub.val.containers = {}
+        container_registry.on_config_changed('containers')
+    finally:
+        windowsessions.notifier.changed.disconnect(on_changed)
+
+    assert seen
+    assert seen[-1] == (containers.FALLBACK_COLOR, '#000000')

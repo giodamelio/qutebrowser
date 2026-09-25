@@ -17,8 +17,11 @@ import re
 from collections.abc import Callable
 from typing import Any, cast
 
+from qutebrowser.qt.core import QObject, pyqtSignal
+from qutebrowser.qt.gui import QColor
+
 from qutebrowser.browser.webengine import profiles
-from qutebrowser.config import configfiles
+from qutebrowser.config import config, configfiles, configtypes
 from qutebrowser.misc import containers, sessionfile
 from qutebrowser.utils import log, message, objreg, standarddir, usertypes, utils
 
@@ -135,6 +138,36 @@ def check_same_profile(source: Session, target: Session) -> None:
             f"Can't move tabs from session {source.name} "
             f"({_describe_profile(source)}) to session {target.name} "
             f"({_describe_profile(target)})")
+
+
+def _relative_luminance(color: QColor) -> float:
+    """Get a color's relative luminance as WCAG defines it."""
+    def linear(channel: float) -> float:
+        if channel <= 0.04045:
+            return channel / 12.92
+        return ((channel + 0.055) / 1.055) ** 2.4
+
+    return (0.2126 * linear(color.redF()) + 0.7152 * linear(color.greenF()) +
+            0.0722 * linear(color.blueF()))
+
+
+def session_colors(session: Session) -> tuple[str, str]:
+    """Get the background and text color of a session, as #rrggbb.
+
+    The background is the container's color, or the private color for a
+    private session. The text is black or white, whichever has the higher
+    WCAG contrast ratio against it.
+    """
+    if session.private:
+        background = config.val.colors.statusbar.private_session
+    else:
+        background = configtypes.QtColor().to_py(
+            containers.registry.get(session.container).color)
+    luminance = _relative_luminance(background)
+    black_contrast = (luminance + 0.05) / 0.05
+    white_contrast = 1.05 / (luminance + 0.05)
+    text = '#000000' if black_contrast > white_contrast else '#ffffff'
+    return background.name(), text
 
 
 class _Debouncer:
@@ -374,6 +407,7 @@ class SessionManager:
         if old in self._open_order:
             self._open_order[self._open_order.index(old)] = new
             self._write_open_list()
+        notifier.changed.emit()
 
     def add_window(self, session: Session, win_id: int) -> None:
         """Add a window to a session, opening it if it wasn't already.
@@ -470,6 +504,7 @@ class SessionManager:
         self._save_reporting(target)
         if not source.windows:
             self._set_closed(source)
+        notifier.changed.emit()
 
     def mark_dirty(self, session: Session) -> None:
         """Mark a non-private session as needing a save."""
@@ -538,6 +573,26 @@ class SessionManager:
         objreg.get('save-manager').save('state-config', force=True, silent=True)
 
 
+class _Notifier(QObject):
+
+    """Tells windows that their session, or its colors, changed.
+
+    Signals:
+        changed: A session was renamed, a window moved between sessions, or
+                 a container or private color may have changed.
+    """
+
+    changed = pyqtSignal()
+
+
+notifier = _Notifier()
+
+
+@config.change_filter('colors.statusbar.private_session', function=True)
+def _on_private_color_changed() -> None:
+    notifier.changed.emit()
+
+
 manager = cast(SessionManager, None)
 
 
@@ -548,3 +603,7 @@ def init() -> None:
     manager.load_all()
     manager.adopt_containers()
     containers.registry.merged.connect(manager.adopt_containers)
+    # After adoption, so a container that sessions still use is defined
+    # again before windows ask for its color.
+    containers.registry.merged.connect(notifier.changed)
+    config.instance.changed.connect(_on_private_color_changed)
