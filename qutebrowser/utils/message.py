@@ -11,7 +11,7 @@
 import dataclasses
 import traceback
 from typing import Any, TypeAlias
-from collections.abc import Iterable, Callable
+from collections.abc import Iterable, Callable, Sequence
 
 from qutebrowser.qt.core import pyqtSignal, pyqtBoundSignal, QObject
 
@@ -111,7 +111,9 @@ def _build_question(title: str,
                     default: None | bool | str = None,
                     abort_on: Iterable[pyqtBoundSignal] = (),
                     url: str | None = None,
-                    option: bool | None = None) -> usertypes.Question:
+                    option: bool | None = None,
+                    options: Sequence[tuple[str, str, str]] | None = None,
+                    ) -> usertypes.Question:
     """Common function for ask/ask_async."""
     question = usertypes.Question()
     question.title = title
@@ -127,6 +129,13 @@ def _build_question(title: str,
             raise ValueError("Need 'url' given when 'option' is given")
     question.option = option
 
+    if mode == usertypes.PromptMode.select:
+        if not options:
+            raise ValueError("PromptMode.select needs options")
+        question.options = list(options)
+    elif options is not None:
+        raise ValueError("Can only give 'options' with PromptMode.select")
+
     for sig in abort_on:
         sig.connect(question.abort)
     return question
@@ -140,6 +149,7 @@ def ask(*args: Any, **kwargs: Any) -> Any:
         mode: A PromptMode.
         default: The default value to display.
         text: Additional text to show
+        options: For PromptMode.select, the rows as (key, label, description).
         option: The option for always/never question answers.
                 Only available with PromptMode.yesno.
         abort_on: A list of signals which abort the question if emitted.
@@ -166,6 +176,7 @@ def ask_async(title: str,
         handler: The function to get called with the answer as argument.
         default: The default value to display.
         text: Additional text to show.
+        options: For PromptMode.select, the rows as (key, label, description).
     """
     question = _build_question(title, mode=mode, **kwargs)
     question.answered.connect(handler)

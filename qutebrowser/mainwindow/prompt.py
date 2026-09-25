@@ -15,11 +15,12 @@ from collections.abc import MutableSequence
 from qutebrowser.qt.core import (pyqtSlot, pyqtSignal, Qt, QTimer, QDir, QModelIndex,
                           QItemSelectionModel, QObject, QEventLoop, QUrl)
 from qutebrowser.qt.widgets import (QWidget, QGridLayout, QVBoxLayout, QLineEdit,
-                             QLabel, QTreeView, QSizePolicy,
+                             QLabel, QTreeView, QSizePolicy, QAbstractItemView,
                              QSpacerItem, QFileIconProvider)
 from qutebrowser.qt.gui import (QFileSystemModel, QIcon)
 
 from qutebrowser.browser import downloads
+from qutebrowser.completion.models import listcategory
 from qutebrowser.config import config, configtypes, configexc, stylesheet
 from qutebrowser.utils import usertypes, log, utils, qtutils, objreg, message
 from qutebrowser.keyinput import modeman
@@ -317,6 +318,7 @@ class PromptContainer(QWidget):
             usertypes.PromptMode.user_pwd: AuthenticationPrompt,
             usertypes.PromptMode.download: DownloadFilenamePrompt,
             usertypes.PromptMode.alert: AlertPrompt,
+            usertypes.PromptMode.select: SelectPrompt,
         }
         klass = classes[question.mode]
         prompt = klass(question)
@@ -891,6 +893,91 @@ class DownloadFilenamePrompt(FilenamePrompt):
             ('prompt-fileselect-external', "Launch external file selector"),
         ]
         return cmds
+
+
+class SelectPrompt(_BasePrompt):
+
+    """A prompt choosing one of several rows, filtered by typing."""
+
+    def __init__(self, question, parent=None):
+        super().__init__(question, parent)
+        self._init_texts(question)
+
+        self._lineedit = LineEdit(self)
+        self._lineedit.textEdited.connect(self._on_text_edited)
+        self._vbox.addWidget(self._lineedit)
+        self.setFocusProxy(self._lineedit)
+
+        # Unsorted, so rows stay grouped the way the asker ordered them.
+        self._model = listcategory.ListCategory(
+            '', question.options, sort=False, parent=self)
+        self._view = QTreeView(self)
+        self._view.setModel(self._model)
+        self._view.setHeaderHidden(True)
+        self._view.setRootIsDecorated(False)
+        self._view.setColumnHidden(0, True)
+        self._view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._view.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self._view.resizeColumnToContents(1)
+        self._vbox.addWidget(self._view)
+
+        self._init_key_label()
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                           QSizePolicy.Policy.Preferred)
+        self._select_row(0)
+
+    @pyqtSlot(str)
+    def _on_text_edited(self, text):
+        self._model.set_pattern(text)
+        self._select_row(0)
+
+    def _select_row(self, row):
+        selmodel = self._view.selectionModel()
+        assert selmodel is not None
+        if row >= self._model.rowCount():
+            selmodel.clear()
+            return
+        selmodel.setCurrentIndex(
+            self._model.index(row, 1),
+            QItemSelectionModel.SelectionFlag.ClearAndSelect |
+            QItemSelectionModel.SelectionFlag.Rows)
+
+    def item_focus(self, which):
+        assert which in ['prev', 'next'], which
+        count = self._model.rowCount()
+        if count == 0:
+            return
+        current = self._view.currentIndex()
+        if not current.isValid():
+            row = 0 if which == 'next' else count - 1
+        elif which == 'next':
+            row = (current.row() + 1) % count
+        else:
+            row = (current.row() - 1) % count
+        self._select_row(row)
+
+    def accept(self, value=None, save=False):
+        self._check_save_support(save)
+        keys = [key for key, _label, _description in self.question.options]
+        if value is not None:
+            if value not in keys:
+                raise Error(f"Invalid value {value} - expected one of: "
+                            f"{', '.join(keys)}")
+            self.question.answer = value
+            return True
+        current = self._view.currentIndex()
+        if not current.isValid():
+            raise Error("No item matches")
+        self.question.answer = self._model.index(current.row(), 0).data()
+        return True
+
+    def _allowed_commands(self):
+        return [('prompt-accept', 'Accept'),
+                ('prompt-item-focus next', 'Next'),
+                ('prompt-item-focus prev', 'Previous'),
+                ('mode-leave', 'Abort')]
 
 
 class AuthenticationPrompt(_BasePrompt):
