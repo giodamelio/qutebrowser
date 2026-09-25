@@ -14,6 +14,7 @@ The layout is big-endian: the magic b'QUTEHIST', the format version
 ASCII, then the zlib-compressed bytes.
 """
 
+import errno
 import functools
 import hashlib
 import os
@@ -162,6 +163,12 @@ def _fsync_directory(directory: pathlib.Path) -> None:
     fd = os.open(directory, os.O_RDONLY)
     try:
         os.fsync(fd)
+    except OSError as e:
+        # Some filesystems can't fsync a directory at all; failing every
+        # save over it would stop the session from ever being saved.
+        if e.errno not in [errno.EINVAL, errno.ENOTSUP]:
+            raise
+        log.sessions.debug(f"Can't fsync {directory}: {e}")
     finally:
         os.close(fd)
 
@@ -182,7 +189,8 @@ def write_changed(directory: pathlib.Path, history: Mapping[str, bytes],
             path = _path(directory, tab_id)
             new_digest = (data.digest if isinstance(data, Snapshot)
                           else digest(data))
-            # A file deleted behind our back is written again.
+            # The digest only says what was last written, not that the
+            # file is still there.
             if digests.get(tab_id) == new_digest and path.exists():
                 continue
             try:

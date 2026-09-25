@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import errno
 import logging
 import stat
 import zlib
@@ -236,3 +237,20 @@ def test_remove_unreferenced_warns_when_not_a_directory(tmp_path, caplog):
         historystore.remove_unreferenced(path, set(), {})
     assert 'Failed to list' in caplog.text
     assert str(path) in caplog.text
+
+
+@pytest.mark.parametrize('code', [errno.EINVAL, errno.ENOTSUP])
+def test_fsync_directory_unsupported(tmp_path, monkeypatch, caplog, code):
+    def refuse(fd):
+        raise OSError(code, "not supported")
+    monkeypatch.setattr(historystore.os, 'fsync', refuse)
+    with caplog.at_level(logging.DEBUG):
+        historystore._fsync_directory(tmp_path)
+
+
+def test_fsync_directory_error(tmp_path, monkeypatch):
+    def fail(fd):
+        raise OSError(errno.EIO, "I/O error")
+    monkeypatch.setattr(historystore.os, 'fsync', fail)
+    with pytest.raises(OSError):
+        historystore._fsync_directory(tmp_path)
