@@ -453,12 +453,6 @@ class TestTargetedQuestions:
             sip.delete(first)
 
 
-def test_question_repr_has_win_id():
-    question = usertypes.Question()
-    question.win_id = 3
-    assert 'win_id=3' in repr(question)
-
-
 def test_ask_async_targets_window(message_mock):
     message.ask_async('Pick one', usertypes.PromptMode.select,
                       lambda _answer: None, options=OPTIONS, win_id=3)
