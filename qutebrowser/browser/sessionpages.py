@@ -130,15 +130,27 @@ def _last_saved(session: windowsessions.Session) -> str:
     return when.strftime(_TIME_FORMAT)
 
 
+def _normalize_iso_z(value: str) -> str:
+    """Rewrite a trailing 'Z' to '+00:00'.
+
+    fromisoformat only accepts a bare 'Z' suffix from Python 3.11; setup.py
+    allows 3.10, where it would otherwise raise ValueError.
+    """
+    return value[:-1] + '+00:00' if value.endswith('Z') else value
+
+
 def _closed_at(value: Any) -> str:
     """Format a closed-window timestamp in local time.
 
     YAML reads an unquoted ISO 8601 timestamp back as a datetime and a quoted
     one as a string, so both occur. Anything else is shown as it is.
     """
+    if value is None:
+        return 'unknown'
+    raw = value
     if isinstance(value, str):
         try:
-            value = datetime.datetime.fromisoformat(value)
+            value = datetime.datetime.fromisoformat(_normalize_iso_z(value))
         except ValueError:
             return value
     if not isinstance(value, datetime.datetime):
@@ -146,7 +158,11 @@ def _closed_at(value: Any) -> str:
     if value.tzinfo is None:
         # closed_at is always UTC, even when it lost its offset.
         value = value.replace(tzinfo=datetime.timezone.utc)
-    return value.astimezone().strftime(_TIME_FORMAT)
+    try:
+        return value.astimezone().strftime(_TIME_FORMAT)
+    except (OverflowError, ValueError):
+        # A date too far from year 1 to convert into a timezone behind UTC.
+        return str(raw)
 
 
 def _first_title(window: Mapping[str, Any]) -> str:

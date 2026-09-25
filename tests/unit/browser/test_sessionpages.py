@@ -8,6 +8,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -353,6 +354,55 @@ def test_sessions_page_closed_windows(manager, base_path):
             ':session-restore-window hist 3</td>') in section
     assert ('<tr><td class="index">4</td><td class="closed-at">not a time'
             '</td><td class="tabs">0</td><td class="title"></td>') in section
+
+
+def test_normalize_iso_z():
+    # Asserted directly against the helper, not just the rendered page: on
+    # Python 3.11+ fromisoformat already accepts a bare 'Z', so a page-level
+    # assertion alone would keep passing even if the Z replacement in
+    # _closed_at were deleted. This fails either way.
+    assert (sessionpages._normalize_iso_z('2026-09-24T18:03:11Z') ==
+            '2026-09-24T18:03:11+00:00')
+    assert (sessionpages._normalize_iso_z('2026-09-24T18:03:11+02:00') ==
+            '2026-09-24T18:03:11+02:00')
+
+
+def test_closed_at_none_renders_unknown(manager, base_path):
+    write_session(base_path, 'nulled', closed_windows=[
+        {'closed_at': None, 'window': saved_window('Title')},
+    ])
+    manager.load_all()
+
+    section = element(page(sessionpages.qute_sessions), 'section',
+                      'session-nulled')
+
+    assert '<td class="closed-at">unknown</td>' in section
+
+
+def test_closed_at_overflow_renders_raw(manager, base_path):
+    # A timezone behind UTC pushes year 1 below datetime.MINYEAR when
+    # astimezone() converts it to local time, which raises OverflowError.
+    original_tz = os.environ.get('TZ')
+    os.environ['TZ'] = 'Etc/GMT+12'
+    time.tzset()
+    try:
+        write_session(base_path, 'ancient', closed_windows=[
+            {'closed_at': '0001-01-01T00:00:00Z',
+             'window': saved_window('Old')},
+        ])
+        manager.load_all()
+
+        section = element(page(sessionpages.qute_sessions), 'section',
+                          'session-ancient')
+
+        assert ('<td class="closed-at">0001-01-01T00:00:00Z</td>'
+                in section)
+    finally:
+        if original_tz is None:
+            os.environ.pop('TZ', None)
+        else:
+            os.environ['TZ'] = original_tz
+        time.tzset()
 
 
 def test_sessions_page_no_closed_windows(manager):
