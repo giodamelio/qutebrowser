@@ -75,16 +75,11 @@ def bookmark(*, info=None):
 
 def session(*, info=None):
     """A CompletionModel filled with session names."""
-    from qutebrowser.misc import sessions
+    from qutebrowser.mainwindow import windowsessions
     utils.unused(info)
     model = completionmodel.CompletionModel()
-    try:
-        sess = ((name,) for name
-                in sessions.session_manager.list_sessions()
-                if not name.startswith('_'))
-        model.add_category(listcategory.ListCategory("Sessions", sess))
-    except OSError:
-        log.completion.exception("Failed to list sessions!")
+    names = ((s.name,) for s in windowsessions.manager.sessions())
+    model.add_category(listcategory.ListCategory("Sessions", names))
     return model
 
 

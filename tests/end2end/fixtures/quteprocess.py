@@ -388,7 +388,7 @@ class QuteProc(testprocess.Process):
     def _process_line(self, log_line):
         """Check if the line matches any initial lines we're interested in."""
         start_okay_message = (
-            "load status for <qutebrowser.browser.* tab_id=0 "
+            "load status for <qutebrowser.browser.* tab_id=* "
             "url='about:blank'>: LoadStatus.success")
 
         if (log_line.category == 'ipc' and

@@ -48,7 +48,7 @@ from qutebrowser.browser.webkit.network import networkmanager
 from qutebrowser.extensions import loader
 from qutebrowser.keyinput import macros, eventfilter
 from qutebrowser.mainwindow import mainwindow, prompt, windowundo, windowsessions
-from qutebrowser.misc import (ipc, savemanager, sessions, crashsignal,
+from qutebrowser.misc import (ipc, savemanager, sessioncommands, crashsignal,
                               earlyinit, sql, cmdhistory, backendproblem,
                               objects, quitter, nativeeventfilter)
 from qutebrowser.utils import (log, version, message, utils, urlutils, objreg,
@@ -185,31 +185,17 @@ def _init_icon():
 
 def _process_args(args):
     """Open startpage etc. and process commandline args."""
-    if not args.override_restore:
-        sessions.load_default(args.session)
-
-    new_window = None
-    if not sessions.session_manager.did_load:
-        log.init.debug("Initializing main window...")
-        if args.target == 'private-window':
-            try:
-                session = windowsessions.manager.new_private()
-            except windowsessions.PrivateUnavailableError as e:
-                error.handle_fatal_exc(e, 'Cannot start in private mode',
-                                       no_err_windows=args.no_err_windows)
-                sys.exit(usertypes.Exit.err_init)
-        else:
-            session = windowsessions.manager.default
-
-        new_window = mainwindow.MainWindow(session=session)
+    try:
+        sessioncommands.open_startup_sessions(
+            private=args.target == 'private-window', show=not args.nowindow)
+    except windowsessions.PrivateUnavailableError as e:
+        error.handle_fatal_exc(e, 'Cannot start in private mode',
+                               no_err_windows=args.no_err_windows)
+        sys.exit(usertypes.Exit.err_init)
 
     process_pos_args(args.command)
     _open_startpage()
     _open_special_pages(args)
-
-    if new_window is not None and not args.nowindow:
-        new_window.show()
-        objects.qapp.setActiveWindow(new_window)
 
     delta = datetime.datetime.now() - earlyinit.START_TIME
     log.init.debug("Init finished after {}s".format(delta.total_seconds()))
@@ -417,6 +403,7 @@ def on_focus_changed(_old, new):
         # A focused window must also be visible, and in this case we should
         # consider it as the most recently looked-at window
         objreg.register('last-visible-main-window', window, update=True)
+        windowsessions.manager.window_focused(window.session, window.win_id)
 
 
 def open_desktopservices_url(url):
@@ -493,9 +480,6 @@ def _init_modules(*, args):
         # Only the end-to-end test harness uses these commands.
         from qutebrowser.misc import debugsessions
         utils.unused(debugsessions)
-
-    log.init.debug("Initializing sessions...")
-    sessions.init(objects.qapp)
 
     if not args.no_err_windows:
         crashsignal.crash_handler.display_faulthandler()

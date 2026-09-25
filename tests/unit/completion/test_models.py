@@ -788,7 +788,7 @@ def test_url_completion_zero_limit(config_stub, web_history, quickmarks, info,
 
 
 def test_session_completion(qtmodeltester, session_manager_stub):
-    session_manager_stub.sessions = ['default', '1', '2']
+    session_manager_stub.names = ['default', '1', '2']
     model = miscmodels.session()
     model.set_pattern('')
     qtmodeltester.check(model)

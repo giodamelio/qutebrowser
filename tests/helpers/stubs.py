@@ -452,16 +452,13 @@ class QuickmarkManagerStub(UrlMarkManagerStub):
 
 class SessionManagerStub:
 
-    """Stub for the session-manager object."""
+    """Stub for windowsessions.manager."""
 
     def __init__(self):
-        self.sessions = []
+        self.names = []
 
-    def list_sessions(self):
-        return self.sessions
-
-    def save_autosave(self):
-        pass
+    def sessions(self):
+        return [types.SimpleNamespace(name=name) for name in self.names]
 
 
 class TabbedBrowserStub(QObject):
