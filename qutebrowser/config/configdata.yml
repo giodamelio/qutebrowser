@@ -441,6 +441,29 @@ auto_save.session:
 
 ## content
 
+containers:
+  default: {}
+  type:
+    name: Dict
+    keytype:
+      name: String
+      regex: '(?!private-)[a-z0-9][a-z0-9_-]*'
+    valtype: ContainerDefinition
+    none_ok: true
+  desc: >-
+    Containers that sessions can use, each with its own cookies, cache and
+    site data.
+
+    Each key is a container name: lowercase letters, digits, `_` and `-`,
+    starting with a letter or digit, and not starting with `private-`. Each
+    value is a mapping with a required `color`, in any format the
+    `colors.*` settings accept.
+
+    The `default` container always exists; list it here only to change its
+    color. Containers created with `:container-new` are kept separately and
+    don't appear here. A container defined here wins over one of the same
+    name created with `:container-new`.
+
 content.autoplay:
   default: true
   type: Bool
