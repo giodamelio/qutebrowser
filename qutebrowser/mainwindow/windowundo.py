@@ -47,6 +47,10 @@ class WindowUndoManager(QObject):
     def _on_window_closing(self, window):
         if window.tabbed_browser.is_private:
             return
+        if window.session.container != windowsessions.DEFAULT_CONTAINER:
+            # Undo restores into default, which would silently give the
+            # window another container's cookies and storage.
+            return
 
         self._undos.append(_WindowUndoEntry(
             geometry=window.saveGeometry(),
