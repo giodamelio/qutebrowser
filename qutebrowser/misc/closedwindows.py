@@ -6,13 +6,19 @@
 
 Closing one window of a session that has several asks whether to close just
 that window or the whole session.
+
+Windows closed that way are kept, newest first, in their session's
+closed_windows, which is saved with the session file.
 """
 
+import datetime
 import enum
 from typing import Any
 
 from qutebrowser.api import cmdutils
+from qutebrowser.config import config
 from qutebrowser.mainwindow import windowsessions
+from qutebrowser.misc import sessionfile
 from qutebrowser.utils import message, objreg, usertypes
 
 
@@ -90,3 +96,41 @@ def window_close(*, no_prompt: bool = False, win_id: int | None = None) -> None:
     if no_prompt:
         window.close_choice = CloseChoice.window
     window.close()
+
+
+def record(window: Any) -> None:
+    """Add a closing window to its session's closed-window history.
+
+    Must be called while the window still has its tabs. Private sessions keep
+    no history.
+    """
+    session = window.session
+    if session.private:
+        return
+    session.closed_windows.insert(0, {
+        'closed_at': datetime.datetime.now(datetime.UTC).isoformat(
+            timespec='milliseconds'),
+        'window': sessionfile.serialize_window(window),
+    })
+    _trim(session)
+    windowsessions.manager.mark_dirty(session)
+
+
+def _trim(session: windowsessions.Session) -> bool:
+    limit = config.val.session.closed_windows_max
+    if len(session.closed_windows) <= limit:
+        return False
+    del session.closed_windows[limit:]
+    return True
+
+
+@config.change_filter('session.closed_windows_max', function=True)
+def _on_config_changed() -> None:
+    for session in windowsessions.manager.sessions():
+        if _trim(session):
+            windowsessions.manager.mark_dirty(session)
+
+
+def init() -> None:
+    """Keep every session's history within session.closed_windows_max."""
+    config.instance.changed.connect(_on_config_changed)

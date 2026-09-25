@@ -716,6 +716,8 @@ class MainWindow(QWidget):
             except KeyError:
                 pass
 
+        if choice is closedwindows.CloseChoice.window:
+            closedwindows.record(self)
         windowsessions.manager.window_closing(self)
         self._save_geometry()
 

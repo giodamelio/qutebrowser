@@ -118,6 +118,17 @@ session.lazy_restore:
   default: false
   desc: Load a restored tab as soon as it takes focus.
 
+session.closed_windows_max:
+  type:
+    name: Int
+    minval: 0
+  default: 10
+  desc: >-
+    Maximum number of closed windows each session keeps for `:undo --window`
+    and `:session-restore-window`.
+
+    Older ones are dropped. Private sessions keep none.
+
 backend:
   type:
     name: String

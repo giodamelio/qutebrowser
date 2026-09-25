@@ -523,6 +523,8 @@ Feature: Saving and loading sessions
     And the prompt window runs :prompt-accept window
     And I wait for "removed: main-window" in the log
     Then session close-one should have 1 windows
+    And the session file close-one should contain "closed_at"
+    And the session file close-one should contain "about:blank"
 
   Scenario: Closing one of two windows and choosing the whole session
     When I clear the log
@@ -534,6 +536,7 @@ Feature: Saving and loading sessions
     And I wait for "removed: main-window" in the log
     And I run :session-open close-all
     Then session close-all should have 2 windows
+    And the session file close-all should not contain "closed_at"
 
   Scenario: Closing one of two windows and cancelling
     When I clear the log
@@ -552,6 +555,7 @@ Feature: Saving and loading sessions
     And I wait for "removed: main-window" in the log
     Then "Asking question *" should not be logged
     And session close-np should have 1 windows
+    And the session file close-np should contain "closed_at"
 
   Scenario: Closing the only window of a session doesn't ask
     When I clear the log

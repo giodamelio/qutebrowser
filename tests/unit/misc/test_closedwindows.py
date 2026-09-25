@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import datetime
+
 import pytest
 
 pytest.importorskip('qutebrowser.qt.webenginecore')
@@ -191,3 +193,63 @@ def test_close_session_closes_without_asking(manager, windows,
     # Cancels each window's own close prompt (if any), since it becomes
     # moot once the whole session is closing regardless of its answer.
     assert fake_prompt_queue.aborted_win_ids == [1, 2]
+
+
+def test_record_newest_first(manager, windows):
+    work = manager.new_session('work')
+    first, second = two_windows(manager, windows, work)
+    closedwindows.record(first)
+    closedwindows.record(second)
+    assert [entry['window'] for entry in work.closed_windows] == [
+        {'win': 2}, {'win': 1}]
+    closed_at = datetime.datetime.fromisoformat(
+        work.closed_windows[0]['closed_at'])
+    assert closed_at.utcoffset() == datetime.timedelta(0)
+    assert work.dirty
+
+
+def test_record_caps_history(manager, windows, config_stub):
+    config_stub.val.session.closed_windows_max = 2
+    work = manager.new_session('work')
+    for win_id in [1, 2, 3]:
+        closedwindows.record(open_window(manager, windows, work, win_id))
+    assert [entry['window'] for entry in work.closed_windows] == [
+        {'win': 3}, {'win': 2}]
+
+
+def test_record_cap_zero_keeps_nothing(manager, windows, config_stub):
+    config_stub.val.session.closed_windows_max = 0
+    window = open_window(manager, windows, manager.default, 1)
+    closedwindows.record(window)
+    assert manager.default.closed_windows == []
+
+
+def test_record_skips_private(manager, windows):
+    private = manager.new_private()
+    window = open_window(manager, windows, private, 1)
+    closedwindows.record(window)
+    assert private.closed_windows == []
+
+
+def test_recorded_window_is_saved_with_its_session(manager, windows,
+                                                   tmp_path):
+    work = manager.new_session('work')
+    closing, _other = two_windows(manager, windows, work)
+    closedwindows.record(closing)
+    manager.window_closing(closing)
+    data = sessionfile.read(tmp_path / 'sessions' / 'work.yml')
+    assert data.windows == [{'win': 2}]
+    assert [entry['window'] for entry in data.closed_windows] == [{'win': 1}]
+    assert isinstance(data.closed_windows[0]['closed_at'], str)
+
+
+def test_shrinking_the_cap_trims_every_session(manager, config_stub):
+    closedwindows.init()
+    work = manager.new_session('work')
+    work.closed_windows = [{'closed_at': str(i), 'window': {}}
+                           for i in range(3)]
+    manager.default.closed_windows = [{'closed_at': str(i), 'window': {}}
+                                      for i in range(2)]
+    config_stub.val.session.closed_windows_max = 1
+    assert work.closed_windows == [{'closed_at': '0', 'window': {}}]
+    assert manager.default.closed_windows == [{'closed_at': '0', 'window': {}}]
