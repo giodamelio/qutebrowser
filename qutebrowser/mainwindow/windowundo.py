@@ -13,7 +13,7 @@ from qutebrowser.qt.core import QObject, QByteArray
 
 from qutebrowser.config import config
 from qutebrowser.mainwindow import mainwindow, windowsessions
-from qutebrowser.misc import objects
+from qutebrowser.misc import objects, sessioncommands
 if TYPE_CHECKING:
     from qutebrowser.mainwindow import tabbedbrowser
 
@@ -65,6 +65,7 @@ class WindowUndoManager(QObject):
         It will have the same tab and undo stack as when it was closed.
         """
         entry = self._undos.pop()
+        sessioncommands.open_before_joining(windowsessions.manager.default)
         window = mainwindow.MainWindow(
             session=windowsessions.manager.default,
             geometry=entry.geometry,

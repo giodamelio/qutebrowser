@@ -35,6 +35,16 @@ def open_session(session: windowsessions.Session, *,
     return windows
 
 
+def open_before_joining(session: windowsessions.Session) -> None:
+    """Open a closed session with saved windows before a new window joins it.
+
+    Autosave writes only live windows, so a new window joining the closed
+    session on its own would replace the saved ones in its file.
+    """
+    if not session.private and not session.is_open and session.saved_windows:
+        open_session(session)
+
+
 def open_startup_sessions(*, private: bool, show: bool) -> None:
     """Open the sessions that were open when qutebrowser last quit."""
     manager = windowsessions.manager
@@ -188,8 +198,5 @@ def session_move_window(name: str, *, win_id: int | None = None) -> None:
         raise cmdutils.CommandError(
             f"Session {name} uses container {target.container}, but this "
             f"window uses {source.container}")
-    if not target.is_open and target.saved_windows:
-        # Opening first keeps the target's saved windows; saving it with only
-        # the moved window would lose them.
-        open_session(target)
+    open_before_joining(target)
     windowsessions.manager.move_window(window, target)

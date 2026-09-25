@@ -68,7 +68,10 @@ def get_window(*, via_ipc: bool,
                 private_session = windowsessions.manager.new_private()
             session = private_session
         else:
+            # sessioncommands imports this module.
+            from qutebrowser.misc import sessioncommands
             session = windowsessions.manager.default
+            sessioncommands.open_before_joining(session)
         window = MainWindow(session=session)
         window.should_raise = not no_raise
 
