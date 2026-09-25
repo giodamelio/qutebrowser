@@ -259,6 +259,29 @@ def test_move_storage_undoes_partial_move(container_registry, data_dir,
     assert not (data_dir / 'containers' / 'new').exists()
 
 
+def test_move_storage_reports_failed_undo(container_registry, data_dir,
+                                          cache_dir, monkeypatch):
+    (data_dir / 'containers' / 'old').mkdir(parents=True)
+    (cache_dir / 'containers' / 'old').mkdir(parents=True)
+    real_rename = pathlib.Path.rename
+
+    def rename(self, target):
+        if self in [cache_dir / 'containers' / 'old',
+                    data_dir / 'containers' / 'new']:
+            raise OSError('disk on fire')
+        return real_rename(self, target)
+
+    monkeypatch.setattr(pathlib.Path, 'rename', rename)
+    with pytest.raises(containers.Error) as excinfo:
+        container_registry.move_storage('old', 'new')
+    assert str(excinfo.value) == (
+        f"Failed to move {cache_dir / 'containers' / 'old'} to "
+        f"{cache_dir / 'containers' / 'new'}: disk on fire; moving back "
+        f"{data_dir / 'containers' / 'new'} also failed (disk on fire), so "
+        "it stays under container new and the rest is under container old")
+    assert (data_dir / 'containers' / 'new').exists()
+
+
 def test_all_storage_dirs(data_dir):
     (data_dir / 'containers' / 'b').mkdir(parents=True)
     (data_dir / 'containers' / 'a').mkdir(parents=True)

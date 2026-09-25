@@ -233,9 +233,18 @@ class ContainerRegistry(QObject):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 source.rename(target)
             except OSError as e:
+                error = f"Failed to move {source} to {target}: {e}"
+                stuck = []
                 for moved_source, moved_target in reversed(done):
-                    moved_target.rename(moved_source)
-                raise Error(f"Failed to move {source} to {target}: {e}")
+                    try:
+                        moved_target.rename(moved_source)
+                    except OSError as undo_e:
+                        stuck.append(f"{moved_target} also failed ({undo_e})")
+                if stuck:
+                    error += (f"; moving back {', '.join(stuck)}, so it stays "
+                              f"under container {new} and the rest is under "
+                              f"container {old}")
+                raise Error(error)
             done.append((source, target))
 
 
