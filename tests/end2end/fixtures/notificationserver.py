@@ -86,14 +86,17 @@ class TestNotificationServer(QObject):
         assert actions == ['default', 'Activate']
         assert timeout == -1
 
-        assert hints.keys() == {
-            "x-qutebrowser-origin",
-            "x-kde-origin-name",
-            "desktop-entry",
-            "image-data",
-        }
+        # notify() from qutebrowser itself has no origin, so there's nothing
+        # useful to put in x-kde-origin-name.
+        expected_keys = {"x-qutebrowser-origin", "desktop-entry", "image-data"}
+        if hints["x-qutebrowser-origin"]:
+            expected_keys.add("x-kde-origin-name")
+        assert hints.keys() == expected_keys
+
         for key in 'x-qutebrowser-origin', 'x-kde-origin-name':
-            value = hints[key]
+            value = hints.get(key)
+            if not value:
+                continue
             url = QUrl(value)
             assert url.isValid(), value
             assert url.scheme() == 'http', value

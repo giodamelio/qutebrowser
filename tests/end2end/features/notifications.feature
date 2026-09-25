@@ -165,3 +165,8 @@ Feature: Notifications
         And I run :click-element id show-image-button
         And I wait for the javascript message "notification shown"
         Then the message "<i>Notification from http://localhost:*/: (image not shown)</i><br/><br/><b>RGBA</b><br/>" should be shown
+
+    Scenario: Notification from qutebrowser itself
+        When I run :debug-pyeval -q __import__('qutebrowser').browser.webengine.notification.notify('Links not opened', 'http://localhost/')
+        Then 1 notification should be presented
+        And the notification should have title "Links not opened"

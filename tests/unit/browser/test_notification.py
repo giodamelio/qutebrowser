@@ -7,15 +7,13 @@
 import logging
 import itertools
 import inspect
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 import pytest
 from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QUrl, QObject
 from qutebrowser.qt.gui import QImage
 from qutebrowser.qt.dbus import QDBusMessage, QDBus, QDBusConnection
 pytest.importorskip("qutebrowser.qt.webenginecore")
-if TYPE_CHECKING:
-    from qutebrowser.qt.webenginecore import QWebEngineNotification
 
 from qutebrowser.config import configdata
 from qutebrowser.misc import objects
@@ -131,8 +129,8 @@ class FakeWebEngineNotification(QObject):
     def message(self) -> str:
         return "notification message"
 
-    def tag(self) -> None:
-        return None
+    def tag(self) -> str:
+        return ""
 
     def show(self) -> None:
         pass
@@ -141,6 +139,11 @@ class FakeWebEngineNotification(QObject):
 @pytest.fixture
 def fake_notification():
     return FakeWebEngineNotification()
+
+
+@pytest.fixture
+def fake_record(fake_notification):
+    return notification.NotificationRecord.from_qt(fake_notification)
 
 
 def _get_notification_adapters():
@@ -169,10 +172,10 @@ class FakeNotificationAdapter(notification.AbstractNotificationAdapter):
 
     def present(
         self,
-        qt_notification: "QWebEngineNotification", *,
+        record: notification.NotificationRecord, *,
         replaces_id: int | None,
     ) -> int:
-        self.presented.append(qt_notification)
+        self.presented.append(record)
         return next(self.id_gen)
 
     @pyqtSlot(int)
@@ -208,10 +211,10 @@ class TestDBus:
         )
         return notification.NotificationBridgePresenter()
 
-    def test_notify_fatal_error(self, dbus_adapter, fake_notification):
+    def test_notify_fatal_error(self, dbus_adapter, fake_record):
         dbus_adapter.interface.notify_reply = self.FATAL_ERROR
         with pytest.raises(notification.DBusError):
-            dbus_adapter.present(fake_notification, replaces_id=None)
+            dbus_adapter.present(fake_record, replaces_id=None)
 
     def test_notify_fatal_error_presenter(self, dbus_presenter, fake_notification):
         dbus_presenter._init_adapter()
@@ -219,10 +222,10 @@ class TestDBus:
         with pytest.raises(notification.DBusError):
             dbus_presenter.present(fake_notification)
 
-    def test_notify_non_fatal_error(self, qtbot, dbus_adapter, fake_notification):
+    def test_notify_non_fatal_error(self, qtbot, dbus_adapter, fake_record):
         dbus_adapter.interface.notify_reply = self.NO_REPLY_ERROR
         with qtbot.wait_signal(dbus_adapter.error) as blocker:
-            dbus_adapter.present(fake_notification, replaces_id=None)
+            dbus_adapter.present(fake_record, replaces_id=None)
         assert blocker.args == [f"error: {self.NO_REPLY_ERROR.errorName()}"]
 
     def test_notify_non_fatal_error_presenter(
@@ -278,4 +281,65 @@ class TestDBus:
         assert message in caplog.messages
 
         assert isinstance(dbus_presenter._adapter, FakeNotificationAdapter)
-        assert dbus_presenter._adapter.presented == [fake_notification]
+        assert dbus_presenter._adapter.presented == [
+            notification.NotificationRecord.from_qt(fake_notification)]
+
+
+def test_record_from_qt(fake_notification):
+    assert notification.NotificationRecord.from_qt(fake_notification) == (
+        notification.NotificationRecord(
+            title="notification title",
+            body="notification message",
+            origin=QUrl("https://example.org"),
+            icon=QImage(),
+            tag="",
+        ))
+
+
+class ErrorAdapter(FakeNotificationAdapter):
+
+    def present(self, record, *, replaces_id):
+        raise notification.Error("boom")
+
+
+class TestNotify:
+
+    @pytest.fixture
+    def make_bridge(self, monkeypatch, config_stub):
+        def make(adapter_class):
+            monkeypatch.setattr(
+                notification.NotificationBridgePresenter,
+                "_get_adapter_candidates",
+                lambda _self, _setting: [adapter_class])
+            bridge = notification.NotificationBridgePresenter()
+            monkeypatch.setattr(notification, 'bridge', bridge)
+            return bridge
+        return make
+
+    def test_presents_record(self, make_bridge):
+        bridge = make_bridge(FakeNotificationAdapter)
+        notification.notify("Links not opened", "https://example.org/")
+        [record] = bridge._adapter.presented
+        assert record.title == "Links not opened"
+        assert record.body == "https://example.org/"
+        assert record.icon.isNull()
+        assert not record.origin.isValid()
+        assert bridge._active_notifications == {}
+
+    def test_without_bridge(self, monkeypatch, caplog):
+        monkeypatch.setattr(notification, 'bridge', None)
+        with caplog.at_level(logging.DEBUG):
+            notification.notify("Links not opened", "body")
+        assert "Not sending notification 'Links not opened'" in caplog.text
+
+    def test_skips_messages_adapter(self, make_bridge, message_mock):
+        make_bridge(notification.MessagesNotificationAdapter)
+        notification.notify("Links not opened", "body")
+        assert not message_mock.messages
+
+    def test_reports_adapter_error(self, make_bridge, message_mock, caplog):
+        bridge = make_bridge(ErrorAdapter)
+        with caplog.at_level(logging.ERROR):
+            notification.notify("Links not opened", "body")
+        assert message_mock.getmsg().text == "Failed to show notification: boom"
+        assert bridge._adapter is None
