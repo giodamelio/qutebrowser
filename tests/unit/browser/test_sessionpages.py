@@ -2,6 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import datetime
+import logging
+import os
 import pathlib
 import subprocess
 import sys
@@ -16,6 +19,7 @@ import qutebrowser
 from qutebrowser.browser import sessionpages
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.mainwindow import windowsessions
+from qutebrowser.misc import sessionfile
 from qutebrowser.utils import objreg, qtutils
 
 
@@ -119,7 +123,23 @@ def element(html, tag, element_id):
     return html[start:html.index(f'</{tag}>', start)]
 
 
-@pytest.mark.parametrize('host', ['containers'])
+def write_session(base_path, name, *, container='default', windows=(),
+                  closed_windows=()):
+    base_path.mkdir(parents=True, exist_ok=True)
+    sessionfile.write(base_path / f'{name}.yml', sessionfile.SessionData(
+        container=container, windows=list(windows),
+        closed_windows=list(closed_windows)))
+
+
+def saved_window(*titles):
+    return {'tabs': [
+        {'history': [{'url': f'http://example.com/{i}', 'title': title,
+                      'active': True}]}
+        for i, title in enumerate(titles)
+    ]}
+
+
+@pytest.mark.parametrize('host', ['containers', 'sessions'])
 def test_qutescheme_registers_page(host):
     """Importing qutescheme alone registers the page, as the browser relies on."""
     code = ("from qutebrowser.browser import qutescheme; "
@@ -179,3 +199,115 @@ def test_containers_page_unused_warning(manager, container_registry,
     for name in ['kept', 'decl', 'default']:
         assert 'container-delete' not in element(html, 'tr',
                                                  f'container-{name}')
+
+
+def test_sessions_page_counts(manager, windows, base_path):
+    write_session(base_path, 'closed',
+                  windows=[saved_window('a', 'b'), saved_window('c')])
+    manager.load_all()
+    live = manager.new_session('live')
+    open_window(manager, windows, live, 1, tabs=3)
+    open_window(manager, windows, live, 2, tabs=1)
+
+    html = page(sessionpages.qute_sessions)
+
+    assert ('<p class="state">closed, 2 windows, 3 tabs, last saved ' in
+            element(html, 'section', 'session-closed'))
+    assert ('<p class="state">open, 2 windows, 4 tabs, last saved ' in
+            element(html, 'section', 'session-live'))
+    assert ('<p class="state">closed, 0 windows, 0 tabs, last saved ' in
+            element(html, 'section', 'session-default'))
+    assert 'class="unreadable"' not in html
+
+
+def test_sessions_page_container_and_order(manager, container_registry):
+    container_registry.add('work', 'red')
+    manager.new_session('job', container='work')
+    manager.new_session('alpha')
+    private = manager.new_private()
+
+    html = page(sessionpages.qute_sessions)
+
+    assert ('<p class="container">Container: work <span class="swatch" '
+            'style="background-color: #ff0000"></span></p>' in
+            element(html, 'section', 'session-job'))
+    assert ('<p class="container">Container: default <span class="swatch" '
+            'style="background-color: #3b4252"></span></p>' in
+            element(html, 'section', 'session-alpha'))
+    assert (html.index('id="session-alpha"') <
+            html.index('id="session-default"') <
+            html.index('id="session-job"') <
+            html.index(f'id="session-{private.name}"'))
+
+
+def test_sessions_page_last_saved(manager, base_path):
+    write_session(base_path, 'old')
+    os.utime(base_path / 'old.yml', (1790000000, 1790000000))
+    manager.load_all()
+    fresh = manager.new_session('fresh')
+    fresh.last_saved = datetime.datetime(2026, 9, 25, 10, 30, 0)
+
+    html = page(sessionpages.qute_sessions)
+
+    old_time = datetime.datetime.fromtimestamp(1790000000).strftime(
+        '%Y-%m-%d %H:%M:%S')
+    assert (f'last saved {old_time}</p>' in
+            element(html, 'section', 'session-old'))
+    assert ('last saved 2026-09-25 10:30:00</p>' in
+            element(html, 'section', 'session-fresh'))
+    assert 'last saved never</p>' in element(html, 'section', 'session-default')
+
+
+def test_sessions_page_private_only_while_open(manager, windows):
+    private = manager.new_private()
+    open_window(manager, windows, private, 1, tabs=2)
+
+    section = element(page(sessionpages.qute_sessions), 'section',
+                      f'session-{private.name}')
+    assert ('<p class="state">private, in memory and never saved, 1 window, '
+            '2 tabs</p>') in section
+    assert 'swatch' not in section
+    assert 'Container:' not in section
+
+    manager.remove_window(private, 1)
+    del windows[1]
+    html = page(sessionpages.qute_sessions)
+    assert private.name not in html
+    assert 'Private sessions' not in html
+
+
+def test_sessions_page_unreadable(manager, base_path, message_mock, caplog):
+    base_path.mkdir(parents=True, exist_ok=True)
+    (base_path / 'broken.yml').write_text('windows: [\n', encoding='utf-8')
+    with caplog.at_level(logging.ERROR):
+        manager.load_all()
+
+    html = page(sessionpages.qute_sessions)
+
+    assert f'<li class="mono">{base_path / "broken.yml"}</li>' in html
+    assert 'id="session-broken"' not in html
+
+
+def test_sessions_page_counts_bad_tabs_field(manager, base_path):
+    write_session(base_path, 'malformed',
+                  windows=[{'tabs': None}, {'tabs': 'x'}, {},
+                           {'tabs': [{}, {}]}])
+    manager.load_all()
+
+    html = page(sessionpages.qute_sessions)
+
+    assert ('<p class="state">closed, 4 windows, 2 tabs, last saved ' in
+            element(html, 'section', 'session-malformed'))
+
+
+def test_last_saved_permission_error(manager):
+    session = manager.new_session('locked')
+    session.last_saved = None
+
+    class Unreadable:
+        def stat(self):
+            raise PermissionError
+
+    manager.path_for = lambda _session: Unreadable()
+
+    assert sessionpages._last_saved(session) == 'never'

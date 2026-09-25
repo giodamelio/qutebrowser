@@ -1,0 +1,59 @@
+{% extends "styled.html" %}
+
+{% block style %}
+{{super()}}
+h1 {
+    margin-bottom: 10px;
+}
+
+section {
+    margin-bottom: 20px;
+}
+
+th {
+    text-align: left;
+}
+
+.swatch {
+    border: 1px solid #444;
+    display: inline-block;
+    height: 0.9em;
+    vertical-align: middle;
+    width: 0.9em;
+}
+
+.warning {
+    color: #c62828;
+}
+{% endblock %}
+
+{% block content %}
+<h1>Sessions</h1>
+<p class="note">This page is read-only. Change sessions with the <span class="mono">:session-</span> commands.</p>
+{% if unreadable %}
+<div class="unreadable">
+<p class="warning">These session files couldn't be read. They are left untouched and aren't listed below:</p>
+<ul>
+{% for path in unreadable %}
+    <li class="mono">{{ path }}</li>
+{% endfor %}
+</ul>
+</div>
+{% endif %}
+{% for row in saved %}
+<section id="session-{{ row.name }}">
+<h2>{{ row.name }}</h2>
+<p class="container">Container: {{ row.container }} <span class="swatch" style="background-color: {{ row.swatch }}"></span></p>
+<p class="state">{% if row.is_open %}open{% else %}closed{% endif %}, {{ row.counts }}, last saved {{ row.last_saved }}</p>
+</section>
+{% endfor %}
+{% if private %}
+<h2>Private sessions</h2>
+{% for row in private %}
+<section id="session-{{ row.name }}">
+<h3>{{ row.name }}</h3>
+<p class="state">private, in memory and never saved, {{ row.counts }}</p>
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

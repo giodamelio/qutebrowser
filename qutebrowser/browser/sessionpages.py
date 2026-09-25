@@ -5,6 +5,10 @@
 """The read-only qute://containers and qute://sessions pages."""
 
 import dataclasses
+import datetime
+import pathlib
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from qutebrowser.qt.core import QUrl
 
@@ -13,10 +17,11 @@ from qutebrowser.browser.webengine import profiles
 from qutebrowser.config import configtypes
 from qutebrowser.mainwindow import windowsessions
 from qutebrowser.misc import containers
-from qutebrowser.utils import jinja
+from qutebrowser.utils import jinja, objreg
 
 
 _SOURCES = {'builtin': 'built-in', 'runtime': 'runtime', 'declared': 'declared'}
+_TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -56,3 +61,90 @@ def qute_containers(_url: QUrl) -> tuple[str, str]:
         ))
     return 'text/html', jinja.render('containers.html', title='Containers',
                                      rows=rows)
+
+
+@dataclasses.dataclass(frozen=True)
+class SessionRow:
+
+    """One saved session on qute://sessions."""
+
+    name: str
+    container: str
+    swatch: str
+    is_open: bool
+    counts: str
+    last_saved: str
+
+
+@dataclasses.dataclass(frozen=True)
+class PrivateRow:
+
+    """One open private session on qute://sessions."""
+
+    name: str
+    counts: str
+
+
+def _plural(number: int, noun: str) -> str:
+    return f'{number} {noun}' if number == 1 else f'{number} {noun}s'
+
+
+def _counts(windows: int, tabs: int) -> str:
+    return f"{_plural(windows, 'window')}, {_plural(tabs, 'tab')}"
+
+
+def _live_counts(session: windowsessions.Session) -> str:
+    tabs = sum(len(objreg.window_registry[win_id].tabbed_browser.widgets())
+               for win_id in session.windows)
+    return _counts(len(session.windows), tabs)
+
+
+def _saved_counts(windows: Sequence[Mapping[str, Any]]) -> str:
+    tabs = sum(len(window['tabs']) if isinstance(window.get('tabs'), list)
+               else 0 for window in windows)
+    return _counts(len(windows), tabs)
+
+
+def _last_saved(session: windowsessions.Session) -> str:
+    when = session.last_saved
+    if when is None:
+        # last_saved only covers saves in this run; the file's modification
+        # time says when an earlier run saved it.
+        try:
+            mtime = windowsessions.manager.path_for(session).stat().st_mtime
+        except OSError:
+            return 'never'
+        when = datetime.datetime.fromtimestamp(mtime)
+    return when.strftime(_TIME_FORMAT)
+
+
+def _unreadable_paths(
+        manager: windowsessions.SessionManager) -> list[pathlib.Path]:
+    # The manager has no public query for these. E and F change
+    # windowsessions.py in parallel with G, so adding one waits for the merge.
+    # pylint: disable=protected-access
+    return sorted(manager._base_path / f'{name}.yml'
+                  for name in manager._unreadable)
+
+
+@qutescheme.add_handler('sessions')
+def qute_sessions(_url: QUrl) -> tuple[str, str]:
+    """Handler for qute://sessions. Show every session."""
+    manager = windowsessions.manager
+    saved = [
+        SessionRow(
+            name=session.name,
+            container=session.container,
+            swatch=_swatch(session.container),
+            is_open=session.is_open,
+            counts=(_live_counts(session) if session.is_open
+                    else _saved_counts(session.saved_windows)),
+            last_saved=_last_saved(session),
+        )
+        for session in manager.sessions() if not session.private
+    ]
+    private = [PrivateRow(name=session.name, counts=_live_counts(session))
+               for session in manager.private_sessions()]
+    return 'text/html', jinja.render(
+        'sessions.html', title='Sessions', saved=saved, private=private,
+        unreadable=_unreadable_paths(manager))
