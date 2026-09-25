@@ -383,9 +383,9 @@ class PromptContainer(QWidget):
         # local reaction to answering our own prompt) doesn't have to guess
         # from a _prompt that may already be gone by other means.
         self._in_prompt_mode = False
-        # Bound at construction time rather than read from the module-level
-        # prompt_queue on every use, so this container keeps talking to the
-        # same queue it registered with even if that global is ever swapped.
+        # Bound at construction, not read from the module global on every
+        # use, so tests can substitute a fake prompt_queue before creating
+        # the container.
         self._prompt_queue = prompt_queue
 
         self.setObjectName('PromptContainer')
@@ -421,23 +421,11 @@ class PromptContainer(QWidget):
             widget.deleteLater()
 
         if question is None or not_for_us:
-            # Nothing (more) for us to show right now: either every
-            # question is done, or this one is meant for another window,
-            # which pre-empts ours exactly like there being no question at
-            # all. Either way we leave our own key mode if we were *still*
-            # in it - guarded by _in_prompt_mode, not just "do we have a
-            # _prompt": answering our own prompt already cleared
-            # _in_prompt_mode (_on_prompt_done) without touching _prompt,
-            # and that can itself cause a re-entrant call here (its real
-            # leave reaches the queue, which re-emits show_prompts), so
-            # without this guard we'd call _leave_key_mode a second time.
-            # This is the *only* place a container ever leaves its own key
-            # mode other than answering its own prompt: the queue decided
-            # this on its own (show_prompts is entirely queue-controlled),
-            # so unlike reacting to some other window's raw mode_left
-            # signal, there's no stale shared state to race against here.
-            # We get our own question back, if we had one interrupted, via
-            # the restore once the other one is done.
+            # Guarded by _in_prompt_mode, not just "do we have a _prompt":
+            # answering our own prompt already clears _in_prompt_mode, and
+            # the resulting re-emitted show_prompts can re-enter here,
+            # which would call _leave_key_mode a second time without this
+            # guard.
             leaving = self._in_prompt_mode
             key_mode = self._prompt.KEY_MODE if leaving and self._prompt is not None else None
             if not_for_us:
