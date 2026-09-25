@@ -12,7 +12,7 @@ from typing import TypeAlias, cast
 from collections.abc import MutableSequence
 
 from qutebrowser.qt import machinery
-from qutebrowser.qt.core import (pyqtBoundSignal, pyqtSlot, QRect, QPoint, QTimer, Qt,
+from qutebrowser.qt.core import (pyqtBoundSignal, pyqtSignal, pyqtSlot, QRect, QPoint, QTimer, Qt,
                           QCoreApplication, QEventLoop, QByteArray)
 from qutebrowser.qt.widgets import QWidget, QVBoxLayout, QSizePolicy
 from qutebrowser.qt.gui import QPalette
@@ -133,7 +133,13 @@ class MainWindow(QWidget):
         _commandrunner: The main CommandRunner instance.
         _overlays: Widgets shown as overlay for the current webpage.
         session: The session this window belongs to.
+
+    Signals:
+        session_changed: The window's session was renamed or replaced, or
+                         its colors changed.
     """
+
+    session_changed = pyqtSignal()
 
     # Application wide stylesheets
     STYLESHEET = """
@@ -578,6 +584,11 @@ class MainWindow(QWidget):
         self.status.cmd.hide_completion.connect(
             self._completion.hide)
         self.status.release_focus.connect(self.tabbed_browser.on_release_focus)
+
+        # session
+        windowsessions.notifier.changed.connect(self.session_changed)
+        self.session_changed.connect(self.status.on_session_changed)
+        self.session_changed.connect(self.tabbed_browser.on_session_changed)
 
     def _set_decoration(self, hidden):
         """Set the visibility of the window decoration via Qt."""

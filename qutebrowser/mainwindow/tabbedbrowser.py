@@ -332,6 +332,12 @@ class TabbedBrowser(QWidget):
 
         self._window().setWindowTitle(title)
 
+    @pyqtSlot()
+    def on_session_changed(self):
+        """Show a renamed session, or another session, in the titles."""
+        self.widget.update_tab_titles()
+        self._update_window_title()
+
     def _connect_tab_signals(self, tab):
         """Set up the needed signals for tab."""
         tab.pinned_changed.connect(self._mark_session_dirty)

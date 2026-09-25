@@ -369,6 +369,53 @@ Feature: Saving and loading sessions
     And I run :session-move-window default
     Then the error "Can't move windows into or out of private sessions" should be shown
 
+  Scenario: Window titles show the session and container
+    When I set window.title_format to {session}/{container}
+    And I run :container-new title-a
+    And I run :session-new title-work --container title-a
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+        title: default/default
+      - session: title-work
+        title: title-work/title-a
+      """
+
+  Scenario: Window titles follow :session-move-window
+    When I set window.title_format to {session}/{container}
+    And I run :session-new title-target
+    And I run :session-new title-source
+    And I run :session-move-window title-target
+    Then the session should look like:
+      """
+      windows:
+      - title: default/default
+      - title: title-target/default
+      - title: title-target/default
+      """
+
+  Scenario: Window titles follow :session-rename
+    When I set window.title_format to {session}/{container}
+    And I run :session-new title-old
+    And I run :session-rename title-old title-new
+    Then the session should look like:
+      """
+      windows:
+      - title: default/default
+      - title: title-new/default
+      """
+
+  Scenario: Window titles of private windows have no container
+    When I set window.title_format to {session}/{container}
+    And I open about:blank in a private window
+    Then the session should look like:
+      """
+      windows:
+      - title: default/default
+      - title: private-*/
+      """
+
   Scenario: Pinned tabs survive closing and reopening a session
     When I run :session-new work-pin
     And I open data/numbers/1.txt
