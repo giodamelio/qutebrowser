@@ -217,6 +217,21 @@ def test_remove_window_keeps_container_as_last_window(
     assert registry.is_loaded('work')
 
 
+def test_reopening_after_kept_last_window_holds_container_once(
+        manager, registry, windows, container_registry):
+    container_registry.add('work', '#111111')
+    session = manager.new_session('job', container='work')
+    # Like a broken first window at startup: removing it looks like closing
+    # the browser's last window, so the release is skipped.
+    open_window(manager, windows, session, 1)
+    manager.remove_window(session, 1)
+    open_window(manager, windows, session, 2)
+    open_window(manager, windows, manager.default, 3)
+
+    manager.remove_window(session, 2)
+    assert not registry.is_loaded('work')
+
+
 def test_shutdown_leaves_container_profile_for_process_exit(
         manager, registry, windows, container_registry):
     container_registry.add('work', '#111111')
