@@ -464,6 +464,11 @@ containers:
     don't appear here. A container defined here wins over one of the same
     name created with `:container-new`.
 
+    A window's status bar takes its container's color as its background in
+    normal mode, with black or white text, whichever is easier to read. The
+    URL keeps its `colors.statusbar.url.*` colors, so pick container colors
+    it stays readable on.
+
 content.autoplay:
   default: true
   type: Bool
@@ -3056,14 +3061,10 @@ colors.prompts.selected.bg:
   desc: Background color for the selected item in filename prompts.
 
 colors.statusbar.normal.fg:
-  default: white
-  type: QssColor
-  desc: Foreground color of the statusbar.
+  deleted: true
 
 colors.statusbar.normal.bg:
-  default: black
-  type: QssColor
-  desc: Background color of the statusbar.
+  deleted: true
 
 colors.statusbar.insert.fg:
   default: white
@@ -3086,14 +3087,10 @@ colors.statusbar.passthrough.bg:
   desc: Background color of the statusbar in passthrough mode.
 
 colors.statusbar.private.fg:
-  default: white
-  type: QssColor
-  desc: Foreground color of the statusbar in private browsing mode.
+  deleted: true
 
 colors.statusbar.private.bg:
-  default: '#666666'
-  type: QssColor
-  desc: Background color of the statusbar in private browsing mode.
+  deleted: true
 
 colors.statusbar.private_session:
   default: '#666666'
@@ -3116,14 +3113,10 @@ colors.statusbar.command.bg:
   desc: Background color of the statusbar in command mode.
 
 colors.statusbar.command.private.fg:
-  default: white
-  type: QssColor
-  desc: Foreground color of the statusbar in private browsing + command mode.
+  deleted: true
 
 colors.statusbar.command.private.bg:
-  default: darkslategray
-  type: QssColor
-  desc: Background color of the statusbar in private browsing + command mode.
+  deleted: true
 
 colors.statusbar.caret.fg:
   default: white

@@ -14,6 +14,7 @@ from qutebrowser.browser import browsertab
 from qutebrowser.config import config, stylesheet
 from qutebrowser.keyinput import modeman
 from qutebrowser.utils import usertypes, log, objreg, utils
+from qutebrowser.mainwindow import windowsessions
 from qutebrowser.mainwindow.statusbar import (backforward, command, progress,
                                               keystring, percentage, url,
                                               tabindex, textbase, clock, searchmatch)
@@ -29,7 +30,6 @@ class ColorFlags:
         insert: If we're currently in insert mode.
         command: If we're currently in command mode.
         mode: The current caret mode (CaretMode.off/.on/.selection).
-        private: Whether this window is in private browsing mode.
         passthrough: If we're currently in passthrough-mode.
     """
 
@@ -45,14 +45,10 @@ class ColorFlags:
     insert: bool = False
     command: bool = False
     caret: CaretMode = CaretMode.off
-    private: bool = False
     passthrough: bool = False
 
     def to_stringlist(self):
-        """Get a string list of set flags used in the stylesheet.
-
-        This also combines flags in ways they're used in the sheet.
-        """
+        """Get a string list of set flags used in the sheet."""
         strings = []
         if self.prompt:
             strings.append('prompt')
@@ -60,13 +56,8 @@ class ColorFlags:
             strings.append('insert')
         if self.command:
             strings.append('command')
-        if self.private:
-            strings.append('private')
         if self.passthrough:
             strings.append('passthrough')
-
-        if self.private and self.command:
-            strings.append('private-command')
 
         if self.caret == self.CaretMode.on:
             strings.append('caret')
@@ -78,29 +69,32 @@ class ColorFlags:
         return strings
 
 
-def _generate_stylesheet():
+def _generate_stylesheet(background, foreground):
+    """Get the stylesheet template for a window with the given session colors.
+
+    The session colors only fill the base rule. Every mode rule is more
+    specific, so every mode but normal keeps its own colors.
+    """
     flags = [
-        ('private', 'statusbar.private'),
         ('caret', 'statusbar.caret'),
         ('caret-selection', 'statusbar.caret.selection'),
         ('prompt', 'prompts'),
         ('insert', 'statusbar.insert'),
         ('command', 'statusbar.command'),
         ('passthrough', 'statusbar.passthrough'),
-        ('private-command', 'statusbar.command.private'),
     ]
     qss = """
         QWidget#StatusBar,
         QWidget#StatusBar QLabel,
         QWidget#StatusBar QLineEdit {
             font: {{ conf.fonts.statusbar }};
-            color: {{ conf.colors.statusbar.normal.fg }};
+            color: %s;
         }
 
         QWidget#StatusBar {
-            background-color: {{ conf.colors.statusbar.normal.bg }};
+            background-color: %s;
         }
-    """
+    """ % (foreground, background)  # noqa: S001
     for flag, option in flags:
         qss += """
             QWidget#StatusBar[color_flags~="%s"],
@@ -147,19 +141,17 @@ class StatusBar(QWidget):
     moved = pyqtSignal('QPoint')
     release_focus = pyqtSignal()
 
-    STYLESHEET = _generate_stylesheet()
-
     def __init__(self, *, win_id, private, parent=None):
         super().__init__(parent)
         self.setObjectName(self.__class__.__name__)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
-        stylesheet.set_register(self)
+        self._win_id = win_id
+        self._stylesheet = stylesheet.set_register(
+            self, self._stylesheet_template())
 
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
 
-        self._win_id = win_id
         self._color_flags = ColorFlags()
-        self._color_flags.private = private
 
         self._hbox = QHBoxLayout(self)
         self._set_hbox_padding()
@@ -319,6 +311,27 @@ class StatusBar(QWidget):
                             window=self._win_id)
         return window.widget.currentWidget()
 
+    def _session(self):
+        """Get the session of this status bar's window."""
+        return objreg.get('main-window', scope='window',
+                          window=self._win_id).session
+
+    def _stylesheet_template(self):
+        return _generate_stylesheet(
+            *windowsessions.session_colors(self._session()))
+
+    def _update_stylesheet(self):
+        """Re-render and re-apply the stylesheet.
+
+        Re-applying also makes Qt re-read color_flags.
+        """
+        self._stylesheet.set_stylesheet(self._stylesheet_template())
+
+    @pyqtSlot()
+    def on_session_changed(self):
+        """Show the colors of the window's current session."""
+        self._update_stylesheet()
+
     def set_mode_active(self, mode, val):
         """Setter for self.{insert,command,caret}_active.
 
@@ -342,7 +355,7 @@ class StatusBar(QWidget):
                 # Turning on is handled in on_current_caret_selection_toggled
                 log.statusbar.debug("Setting caret mode off")
                 self._color_flags.caret = ColorFlags.CaretMode.off
-        stylesheet.set_register(self, update=False)
+        self._update_stylesheet()
 
     def _set_mode_text(self, mode):
         """Set the mode text."""
@@ -424,7 +437,7 @@ class StatusBar(QWidget):
         self.percentage.on_tab_changed(tab)
         self.backforward.on_tab_changed(tab)
         self.maybe_hide()
-        assert tab.is_private == self._color_flags.private
+        assert tab.is_private == self._session().private
 
     @pyqtSlot(browsertab.SelectionState)
     def on_caret_selection_toggled(self, selection_state):
@@ -440,7 +453,7 @@ class StatusBar(QWidget):
         else:
             self._set_mode_text("caret")
             self._color_flags.caret = ColorFlags.CaretMode.on
-        stylesheet.set_register(self, update=False)
+        self._update_stylesheet()
 
     def resizeEvent(self, e):
         """Extend resizeEvent of QWidget to emit a resized signal afterwards.

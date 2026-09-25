@@ -713,7 +713,7 @@ class TestConfig:
         pattern = urlmatch.UrlPattern('https://www.example.com/')
         with pytest.raises(configexc.NoPatternError):
             with qtbot.assert_not_emitted(conf.changed):
-                meth('colors.statusbar.normal.bg', '#abcdef', pattern=pattern)
+                meth('colors.statusbar.insert.bg', '#abcdef', pattern=pattern)
 
     @pytest.mark.parametrize("include_hidden", [True, False])
     def test_dump_userconfig(self, conf, include_hidden):

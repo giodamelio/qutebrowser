@@ -101,13 +101,13 @@ class TestSet:
             commands.set(0, option, 'false', pattern='http://')
 
     def test_set_no_pattern(self, monkeypatch, commands):
-        """Run ':set --pattern=*://* colors.statusbar.normal.bg #abcdef.
+        """Run ':set --pattern=*://* colors.statusbar.insert.bg #abcdef.
 
         Should show an error as patterns are unsupported.
         """
         with pytest.raises(cmdutils.CommandError,
                            match='does not support URL patterns'):
-            commands.set(0, 'colors.statusbar.normal.bg', '#abcdef',
+            commands.set(0, 'colors.statusbar.insert.bg', '#abcdef',
                          pattern='*://*')
 
     @pytest.mark.parametrize('temp', [True, False])
@@ -227,7 +227,7 @@ class TestCycle:
     def test_cycling(self, commands, config_stub, yaml_value,
                      initial, expected):
         """Run ':set' with multiple values."""
-        opt = 'colors.statusbar.normal.bg'
+        opt = 'colors.statusbar.insert.bg'
         config_stub.set_obj(opt, initial)
         commands.config_cycle(opt, 'green', 'magenta', 'blue', 'yellow')
         assert config_stub.get(opt) == expected
