@@ -350,7 +350,15 @@ class SessionManager:
             self._write_open_list()
 
     def add_window(self, session: Session, win_id: int) -> None:
-        """Add a window to a session, opening it if it wasn't already."""
+        """Add a window to a session, opening it if it wasn't already.
+
+        `default` is acquired once at startup and held for the process's
+        life, so it is excluded here; a non-default container is loaded on
+        demand by the session that first needs it.
+        """
+        if (not session.windows and not session.private and
+                session.container != DEFAULT_CONTAINER):
+            profiles.get_registry().acquire(session.container, private=False)
         session.windows.add(win_id)
         if not session.private and session.name not in self._open_order:
             self._open_order.append(session.name)
@@ -367,6 +375,16 @@ class SessionManager:
             del self._private[session.name]
             profiles.get_registry().release(session.profile_key)
             log.misc.debug(f"Closed private session {session.name}")
+        elif (not session.private and session.container != DEFAULT_CONTAINER and
+                not self._shutting_down and
+                any(s.windows for s in self.sessions())):
+            # Left for the process exit to tear down, like `default`: a
+            # container profile released here might not finish flushing its
+            # cookies to disk before qapp.exit() ends the event loop. This
+            # also covers closing the last browser window, which counts as
+            # quitting even though closeEvent runs before Qt's
+            # lastWindowClosed sets _shutting_down.
+            profiles.get_registry().release(session.container)
 
     def window_focused(self, session: Session, win_id: int) -> None:
         session.last_focused = win_id
@@ -414,6 +432,11 @@ class SessionManager:
         for tab in window.tabbed_browser.widgets():
             tab.session = target
         self.add_window(target, window.win_id)
+        # target's add_window() above acquires first if it needs to, so a
+        # container shared with source never drops to zero references.
+        if (not source.windows and source.container != DEFAULT_CONTAINER and
+                not self._shutting_down):
+            profiles.get_registry().release(source.container)
         # A crash before the next autosave would leave the window in neither file.
         self._save_reporting(target)
         if not source.windows:

@@ -161,11 +161,72 @@ def test_remove_window_twice(manager):
     manager.remove_window(session, 1)
 
 
-def test_default_never_closes(manager):
+def test_default_never_closes(manager, registry):
     # The registry never acquired 'default' here, so a release would raise.
     manager.add_window(manager.default, 1)
+    assert registry.get('default') is None
     manager.remove_window(manager.default, 1)
+    assert registry.get('default') is None
     assert manager.default.windows == set()
+
+
+def test_add_window_acquires_container_profile(manager, registry, windows,
+                                               container_registry):
+    container_registry.add('work', '#111111')
+    session = manager.new_session('job', container='work')
+    assert registry.get('work') is None
+
+    open_window(manager, windows, session, 1)
+    assert registry.get('work') is not None
+
+
+def test_two_sessions_share_one_container_profile(manager, registry, windows,
+                                                  container_registry):
+    container_registry.add('work', '#111111')
+    a = manager.new_session('a', container='work')
+    b = manager.new_session('b', container='work')
+
+    open_window(manager, windows, a, 1)
+    profile = registry.get('work')
+    open_window(manager, windows, b, 2)
+
+    assert registry.get('work') is profile
+
+
+def test_remove_window_releases_container_profile(manager, registry, windows,
+                                                  container_registry):
+    container_registry.add('work', '#111111')
+    session = manager.new_session('job', container='work')
+    # A second window elsewhere, so removing session's window isn't closing
+    # the browser's last window.
+    open_window(manager, windows, manager.default, 2)
+    open_window(manager, windows, session, 1)
+    assert registry.is_loaded('work')
+
+    manager.remove_window(session, 1)
+    assert not registry.is_loaded('work')
+
+
+def test_remove_window_keeps_container_as_last_window(
+        manager, registry, windows, container_registry):
+    container_registry.add('work', '#111111')
+    session = manager.new_session('job', container='work')
+    open_window(manager, windows, session, 1)
+
+    manager.remove_window(session, 1)
+    assert registry.is_loaded('work')
+
+
+def test_shutdown_leaves_container_profile_for_process_exit(
+        manager, registry, windows, container_registry):
+    container_registry.add('work', '#111111')
+    session = manager.new_session('job', container='work')
+    open_window(manager, windows, session, 1)
+
+    manager.shutdown()
+    manager.remove_window(session, 1)
+
+    assert registry.is_loaded('work')
 
 
 def test_new_private_single_process(manager, monkeypatch):
@@ -635,6 +696,23 @@ def test_move_window_saves_target(manager, windows, base_path):
 
     manager.move_window(moved, manager.default)
     assert saved(base_path, 'default') == [{'win': 1}, {'win': 2}]
+
+
+def test_move_window_releases_source_container(manager, registry, windows,
+                                               container_registry):
+    container_registry.add('work', '#111111')
+    source = manager.new_session('source', container='work')
+    target = manager.new_session('target', container='work')
+    # A second window elsewhere, so removing the moved window below isn't
+    # closing the browser's last window.
+    open_window(manager, windows, manager.default, 2)
+    moved = open_window(manager, windows, source, 1)
+
+    manager.move_window(moved, target)
+    assert registry.is_loaded('work')
+
+    manager.remove_window(target, 1)
+    assert not registry.is_loaded('work')
 
 
 def test_move_window_aborts_when_source_save_fails(manager, windows,
