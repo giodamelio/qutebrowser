@@ -78,6 +78,13 @@ class PromptQueue(QObject):
         _loops: A list of local EventLoops to spin in when blocking.
         _queue: A deque of waiting questions.
         _question: The current Question object if we're handling a question.
+        _shown_win_ids: The windows that actually entered prompt mode for
+                        _question, authoritative regardless of the order
+                        PromptContainers are notified in. Only a leave from
+                        one of these ends _question.
+        _closed_win_ids: Windows whose PromptContainer is gone. A question
+                         for one of these is aborted instead of shown or
+                         restored, however it reaches ask_question.
 
     Signals:
         show_prompts: Emitted with a Question object when prompts should be
@@ -92,11 +99,27 @@ class PromptQueue(QObject):
         self._shutting_down = False
         self._loops: MutableSequence[qtutils.EventLoop] = []
         self._queue: collections.deque[usertypes.Question] = collections.deque()
+        self._shown_win_ids: set[int] = set()
+        self._closed_win_ids: set[int] = set()
         message.global_bridge.mode_left.connect(self._on_mode_left)
 
     def __repr__(self):
         return utils.get_repr(self, loops=len(self._loops),
                               queue=len(self._queue), question=self._question)
+
+    def _set_question(self, question):
+        """Track a (possibly None) question as current, forgetting who's
+        shown the previous one."""
+        self._question = question
+        self._shown_win_ids = set()
+
+    def mark_shown(self, win_id):
+        """Record that win_id actually entered prompt mode for _question."""
+        self._shown_win_ids.add(win_id)
+
+    def is_shown_in(self, win_id):
+        """Whether win_id actually entered prompt mode for _question."""
+        return win_id in self._shown_win_ids
 
     def _pop_later(self):
         """Helper to call self._pop as soon as everything else is done."""
@@ -149,6 +172,14 @@ class PromptQueue(QObject):
             question.abort()
             return None
 
+        if question.win_id is not None and question.win_id in self._closed_win_ids:
+            # Nothing can ever answer this: showing or queueing it would
+            # block the queue forever.
+            log.prompt.debug(
+                f"Ignoring question for closed window {question.win_id}.")
+            question.abort()
+            return None
+
         if self._question is not None and not blocking:
             # We got an async question, but we're already busy with one, so we
             # just queue it up for later.
@@ -165,7 +196,7 @@ class PromptQueue(QObject):
             if old_question is not None:
                 old_question.interrupted = True
 
-        self._question = question
+        self._set_question(question)
         self.show_prompts.emit(question)
 
         if blocking:
@@ -180,43 +211,114 @@ class PromptQueue(QObject):
             log.prompt.debug("Ending loop.exec() for {}".format(question))
 
             log.prompt.debug("Restoring old question {}".format(old_question))
-            self._question = old_question
-            self.show_prompts.emit(old_question)
-            if old_question is None:
-                # Nothing left to restore, so we can go back to popping async
-                # questions.
-                if self._queue:
-                    self._pop_later()
+            if old_question is not None and old_question.win_id in self._closed_win_ids:
+                # Its window closed while it sat interrupted on this stack;
+                # nothing can ever answer it now.
+                log.prompt.debug(
+                    "Aborting restored question for closed window "
+                    f"{old_question.win_id}.")
+                self._set_question(None)
+                old_question.abort()
+            else:
+                self._set_question(old_question)
+                self.show_prompts.emit(old_question)
+                if old_question is None:
+                    # Nothing left to restore, so we can go back to popping
+                    # async questions.
+                    if self._queue:
+                        self._pop_later()
 
             return question.answer
         else:
             question.completed.connect(self._pop_later)
             return None
 
-    @pyqtSlot(usertypes.KeyMode)
-    def _on_mode_left(self, mode):
-        """Abort question when a prompt mode was left."""
+    @pyqtSlot(usertypes.KeyMode, int)
+    def _on_mode_left(self, mode, win_id):
+        """Abort question when a prompt mode was left in its own window."""
         if mode not in [usertypes.KeyMode.prompt, usertypes.KeyMode.yesno]:
             return
         if self._question is None:
             return
+        if not self.is_shown_in(win_id):
+            # win_id never actually entered prompt mode for _question (e.g.
+            # it left because it was pre-empted by _question showing up
+            # elsewhere, or it's unrelated) - not a leave of this question,
+            # no matter what its win_id is.
+            log.prompt.debug(
+                f"Ignoring {mode} left in window {win_id}, not shown there "
+                f"for {self._question!r}")
+            return
 
         log.prompt.debug("Left mode {}, hiding {}".format(
             mode, self._question))
-        self.show_prompts.emit(None)
+        self._finish_current_question()
 
-        if self._question.answer is None and not self._question.is_aborted:
-            log.prompt.debug("Cancelling {} because {} was left".format(
-                self._question, mode))
-            self._question.cancel()
-        self._question = None
+    def _finish_current_question(self):
+        """Stop tracking the current question, cancelling it if unanswered.
+
+        self._question is cleared *before* show_prompts is emitted, not
+        after: a container reacting to that emit may itself trigger a real,
+        re-entrant mode_left (it's leaving its own key mode in turn), which
+        would otherwise reach _on_mode_left while self._question still
+        looked current and double-process it. With self._question already
+        None by then, that re-entrant call is a no-op, same as any other
+        leave with nothing current to end.
+        """
+        question = self._question
+        self._set_question(None)
+        self.show_prompts.emit(None)
+        if question.answer is None and not question.is_aborted:
+            log.prompt.debug("Cancelling {} because it was left".format(
+                question))
+            question.cancel()
+
+    def abort_window(self, win_id):
+        """Abort every question only the now-closed window could answer.
+
+        Called once win_id's PromptContainer is destroyed. Without this, a
+        question targeted at that window would block the queue forever,
+        since the leave that would normally clear it can no longer happen.
+        """
+        self._closed_win_ids.add(win_id)
+
+        if self._question is not None and self._question.win_id == win_id:
+            question = self._question
+            question.abort()
+            if not self._loops and self._question is question:
+                # No blocking ask_question() call is still on the stack to
+                # restore what this question interrupted; do it ourselves.
+                # (The abort() above may already have triggered a real
+                # leave - e.g. an interrupted question's original window
+                # reacting to its own aborted signal - that finished it;
+                # don't do it twice.)
+                self._finish_current_question()
+
+        remaining: collections.deque[usertypes.Question] = collections.deque()
+        for question in self._queue:
+            if question.win_id == win_id:
+                question.abort()
+            else:
+                remaining.append(question)
+        self._queue = remaining
+
+
+def _abort_window_once_destroyed(queue, win_id):
+    """Defer abort_window() until Qt has actually destroyed the container.
+
+    Connected to PromptContainer.destroyed, so this must not touch the
+    container itself (or anything reachable from show_prompts, which the
+    abort can trigger) while it's still mid-teardown.
+    """
+    QTimer.singleShot(0, functools.partial(queue.abort_window, win_id))
 
 
 class PromptContainer(QWidget):
 
     """Container for prompts to be shown above the statusbar.
 
-    This is a per-window object, however each window shows the same prompt.
+    This is a per-window object. A question is shown in every window, unless
+    it names the one window it is for.
 
     Attributes:
         _layout: The layout used to show prompts in.
@@ -272,14 +374,25 @@ class PromptContainer(QWidget):
         self._layout.setContentsMargins(10, 10, 10, 10)
         self._win_id = win_id
         self._prompt: _BasePrompt | None = None
+        # Whether we're currently in our own key mode for a prompt of ours.
+        # Tracked apart from _prompt so _on_prompt_done (an immediate,
+        # local reaction to answering our own prompt) doesn't have to guess
+        # from a _prompt that may already be gone by other means.
+        self._in_prompt_mode = False
+        # Bound at construction time rather than read from the module-level
+        # prompt_queue on every use, so this container keeps talking to the
+        # same queue it registered with even if that global is ever swapped.
+        self._prompt_queue = prompt_queue
 
         self.setObjectName('PromptContainer')
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         stylesheet.set_register(self)
 
         message.global_bridge.prompt_done.connect(self._on_prompt_done)
-        prompt_queue.show_prompts.connect(self._on_show_prompts)
-        message.global_bridge.mode_left.connect(self._on_global_mode_left)
+        self._prompt_queue.show_prompts.connect(self._on_show_prompts)
+        self.destroyed.connect(
+            functools.partial(_abort_window_once_destroyed,
+                              self._prompt_queue, win_id))
 
     def __repr__(self):
         return utils.get_repr(self, win_id=self._win_id)
@@ -291,6 +404,9 @@ class PromptContainer(QWidget):
         Args:
             question: A Question object or None.
         """
+        not_for_us = (question is not None and
+                      question.win_id not in [None, self._win_id])
+
         item = qtutils.add_optional(self._layout.takeAt(0))
         if item is None:
             widget = None
@@ -300,11 +416,39 @@ class PromptContainer(QWidget):
             log.prompt.debug(f"Deleting old prompt {widget!r}")
             widget.deleteLater()
 
-        if question is None:
-            log.prompt.debug("No prompts left, hiding prompt container.")
+        if question is None or not_for_us:
+            # Nothing (more) for us to show right now: either every
+            # question is done, or this one is meant for another window,
+            # which pre-empts ours exactly like there being no question at
+            # all. Either way we leave our own key mode if we were *still*
+            # in it - guarded by _in_prompt_mode, not just "do we have a
+            # _prompt": answering our own prompt already cleared
+            # _in_prompt_mode (_on_prompt_done) without touching _prompt,
+            # and that can itself cause a re-entrant call here (its real
+            # leave reaches the queue, which re-emits show_prompts), so
+            # without this guard we'd call _leave_key_mode a second time.
+            # This is the *only* place a container ever leaves its own key
+            # mode other than answering its own prompt: the queue decided
+            # this on its own (show_prompts is entirely queue-controlled),
+            # so unlike reacting to some other window's raw mode_left
+            # signal, there's no stale shared state to race against here.
+            # We get our own question back, if we had one interrupted, via
+            # the restore once the other one is done.
+            leaving = self._in_prompt_mode
+            key_mode = self._prompt.KEY_MODE if leaving and self._prompt is not None else None
+            if not_for_us:
+                log.prompt.debug(
+                    f"Not showing {question!r} in window {self._win_id}, "
+                    "hiding our own prompt instead")
+            else:
+                log.prompt.debug("No prompts left, hiding prompt container.")
             self._prompt = None
             self.release_focus.emit()
             self.hide()
+            if leaving and key_mode is not None:
+                reason = ('question shown in another window' if not_for_us
+                         else 'no more questions')
+                self._leave_key_mode(key_mode, reason)
             return
         elif widget is not None:
             # We have more prompts to show, just hide the old one.
@@ -331,6 +475,8 @@ class PromptContainer(QWidget):
             question.aborted.connect(
                 functools.partial(self._on_aborted, prompt.KEY_MODE))
         modeman.enter(self._win_id, prompt.KEY_MODE, 'question asked')
+        self._in_prompt_mode = True
+        self._prompt_queue.mark_shown(self._win_id)
 
         self.setSizePolicy(prompt.sizePolicy())
         self._layout.addWidget(prompt)
@@ -339,37 +485,26 @@ class PromptContainer(QWidget):
         prompt.setFocus()
         self.update_geometry.emit()
 
-    @pyqtSlot()
-    def _on_aborted(self, key_mode):
-        """Leave KEY_MODE whenever a prompt is aborted."""
+    def _leave_key_mode(self, key_mode, reason):
+        """Leave our own key mode, tolerating a window that's already gone."""
+        self._in_prompt_mode = False
         try:
-            modeman.leave(self._win_id, key_mode, 'aborted', maybe=True)
+            modeman.leave(self._win_id, key_mode, reason, maybe=True)
         except (objreg.RegistryUnavailableError, RuntimeError):
             # window was deleted: ignore
             log.prompt.debug(f"Ignoring leaving {key_mode} as window was deleted")
 
+    @pyqtSlot()
+    def _on_aborted(self, key_mode):
+        """Leave KEY_MODE whenever a prompt is aborted."""
+        self._leave_key_mode(key_mode, 'aborted')
+
     @pyqtSlot(usertypes.KeyMode)
     def _on_prompt_done(self, key_mode):
         """Leave the prompt mode in this window if a question was answered."""
-        modeman.leave(self._win_id, key_mode, ':prompt-accept', maybe=True)
-
-    @pyqtSlot(usertypes.KeyMode)
-    def _on_global_mode_left(self, mode):
-        """Leave prompt/yesno mode in this window if it was left elsewhere.
-
-        This ensures no matter where a prompt was answered, we leave the prompt
-        mode and dispose of the prompt object in every window.
-        """
-        if mode not in [usertypes.KeyMode.prompt, usertypes.KeyMode.yesno]:
+        if not self._in_prompt_mode:
             return
-        modeman.leave(self._win_id, mode, 'left in other window', maybe=True)
-        item = self._layout.takeAt(0)
-        if item is not None:
-            widget = item.widget()
-            assert widget is not None
-            log.prompt.debug("Deleting prompt {}".format(widget))
-            widget.hide()
-            widget.deleteLater()
+        self._leave_key_mode(key_mode, ':prompt-accept')
 
     @cmdutils.register(instance='prompt-container', scope='window',
                        modes=[usertypes.KeyMode.prompt,

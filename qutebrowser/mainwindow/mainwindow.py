@@ -515,7 +515,12 @@ class MainWindow(QWidget):
         mode_manager.entered.connect(self.status.on_mode_entered)
         mode_manager.left.connect(self.status.on_mode_left)
         mode_manager.left.connect(self.status.cmd.on_mode_left)
-        mode_manager.left.connect(message.global_bridge.mode_left)
+        # global_bridge.mode_left carries the window id too, so listeners
+        # can tell a targeted question's own window leaving apart from an
+        # unrelated window's leave.
+        mode_manager.left.connect(
+            lambda mode, _new_mode, win_id:
+                message.global_bridge.mode_left.emit(mode, win_id))
 
         # commands
         mode_manager.keystring_updated.connect(
