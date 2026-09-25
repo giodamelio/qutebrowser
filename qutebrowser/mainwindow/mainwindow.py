@@ -35,7 +35,9 @@ win_id_gen = itertools.count(0)
 
 def get_window(*, via_ipc: bool,
                target: str,
-               no_raise: bool = False) -> "MainWindow":
+               no_raise: bool = False,
+               private_session: 'windowsessions.Session | None' = None,
+               ) -> "MainWindow":
     """Helper function for app.py to get a window id.
 
     Args:
@@ -43,6 +45,8 @@ def get_window(*, via_ipc: bool,
         target: Where/how to open the window (via setting, command-line or
                 override).
         no_raise: suppress target window raising
+        private_session: The private session to use for a private-window
+                         target, instead of opening a new one.
 
     Return:
         The MainWindow that was used to open URL
@@ -60,7 +64,9 @@ def get_window(*, via_ipc: bool,
     # Otherwise, or if no window was found, create a new one
     if window is None:
         if target == 'private-window':
-            session = windowsessions.manager.new_private()
+            if private_session is None:
+                private_session = windowsessions.manager.new_private()
+            session = private_session
         else:
             session = windowsessions.manager.default
         window = MainWindow(session=session)
