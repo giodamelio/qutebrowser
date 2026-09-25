@@ -2,11 +2,8 @@
 
 aliases:
   default:
-    w: session-save
     q: close
     qa: quit
-    wq: quit --save
-    wqa: quit --save
   type:
     name: Dict
     keytype:
@@ -113,17 +110,10 @@ new_instance_open_target_window:
     When `new_instance_open_target` is set to `window`, this is ignored.
 
 session_default_name:
-  renamed: session.default_name
+  deleted: true
 
 session.default_name:
-  type:
-    name: SessionName
-    none_ok: true
-  default: null
-  desc: >-
-    Name of the session to save by default.
-
-    If this is set to null, the session which was last loaded is saved.
+  deleted: true
 
 session.lazy_restore:
   type: Bool
@@ -447,17 +437,7 @@ auto_save.interval:
     config/cookies/etc.
 
 auto_save.session:
-  type: Bool
-  default: false
-  desc: >-
-    Always restore open sites when qutebrowser is reopened.
-
-    Without this option set, `:wq` (`:quit --save`) needs to be used to save
-    open tabs (and restore them), while quitting qutebrowser in any other way
-    will not save/restore the session.
-
-    By default, this will save to the session which was last loaded. This
-    behavior can be customized via the `session.default_name` setting.
+  deleted: true
 
 ## content
 
@@ -3807,7 +3787,7 @@ bindings.default:
       <Ctrl-V>: mode-enter passthrough
       <Ctrl-Q>: quit
       ZQ: quit
-      ZZ: quit --save
+      ZZ: quit
       <Ctrl-F>: scroll-page 0 1
       <Ctrl-B>: scroll-page 0 -1
       <Ctrl-D>: scroll-page 0 0.5

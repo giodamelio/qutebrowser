@@ -156,13 +156,13 @@ class TestSet:
             commands.set(0, 'foo', 'bar')
 
     def test_set_invalid_value(self, commands):
-        """Run ':set auto_save.session blah'.
+        """Run ':set content.javascript.enabled blah'.
 
         Should show an error.
         """
         with pytest.raises(cmdutils.CommandError,
                            match="Invalid value 'blah' - must be a boolean!"):
-            commands.set(0, 'auto_save.session', 'blah')
+            commands.set(0, 'content.javascript.enabled', 'blah')
 
     def test_set_wrong_backend(self, commands, monkeypatch):
         monkeypatch.setattr(objects, 'backend', usertypes.Backend.QtWebEngine)
@@ -246,14 +246,14 @@ class TestCycle:
         assert config_stub.get(opt) == ['foo']
 
     def test_toggle(self, commands, config_stub, yaml_value):
-        """Run ':config-cycle auto_save.session'.
+        """Run ':config-cycle completion.shrink'.
 
         Should toggle the value.
         """
-        assert not config_stub.val.auto_save.session
-        commands.config_cycle('auto_save.session')
-        assert config_stub.val.auto_save.session
-        assert yaml_value('auto_save.session')
+        assert not config_stub.val.completion.shrink
+        commands.config_cycle('completion.shrink')
+        assert config_stub.val.completion.shrink
+        assert yaml_value('completion.shrink')
 
     @pytest.mark.parametrize('args', [
         ['url.auto_search'], ['url.auto_search', 'foo']
@@ -273,13 +273,13 @@ class TestCycle:
         assert config_stub.val.url.auto_search == 'naive'
 
     def test_set_toggle_print(self, commands, config_stub, message_mock):
-        """Run ':config-cycle -p auto_save.session'.
+        """Run ':config-cycle -p completion.shrink'.
 
         Should toggle the value and show the new value.
         """
-        commands.config_cycle('auto_save.session', print_=True)
+        commands.config_cycle('completion.shrink', print_=True)
         msg = message_mock.getmsg(usertypes.MessageLevel.info)
-        assert msg.text == 'auto_save.session = true'
+        assert msg.text == 'completion.shrink = true'
 
 
 class TestAdd:
@@ -337,7 +337,7 @@ class TestAdd:
     @pytest.mark.parametrize('replace', [True, False])
     def test_dict_add_replace(self, commands, config_stub, replace):
         name = 'aliases'
-        key = 'w'
+        key = 'q'
         value = 'anything'
 
         if replace:
@@ -346,7 +346,7 @@ class TestAdd:
         else:
             with pytest.raises(
                     cmdutils.CommandError,
-                    match="w already exists in aliases - use --replace to "
+                    match="q already exists in aliases - use --replace to "
                           "overwrite!"):
                 commands.config_dict_add(name, key, value, replace=False)
 
@@ -422,7 +422,7 @@ class TestRemove:
                 match="Invalid value '::' - Pattern without host"):
             commands.config_list_remove("completion.web_history.exclude", "::")
 
-    @pytest.mark.parametrize('key', ['w', 'q'])
+    @pytest.mark.parametrize('key', ['qa', 'q'])
     @pytest.mark.parametrize('temp', [True, False])
     def test_dict_remove(self, commands, config_stub, yaml_value, key, temp):
         name = 'aliases'

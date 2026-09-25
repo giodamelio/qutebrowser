@@ -57,11 +57,6 @@ def get_argparser():
                         "this session.", nargs=2, action='append',
                         dest='temp_settings', default=[],
                         metavar=('OPTION', 'VALUE'))
-    parser.add_argument('-r', '--restore', help="Restore a named session.",
-                        dest='session')
-    parser.add_argument('-R', '--override-restore', help="Don't restore a "
-                        "session even if one would be restored.",
-                        action='store_true')
     parser.add_argument('--target', choices=['auto', 'tab', 'tab-bg',
                                              'tab-silent', 'tab-bg-silent',
                                              'window', 'private-window'],

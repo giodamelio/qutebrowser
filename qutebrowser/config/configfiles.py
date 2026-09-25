@@ -90,6 +90,7 @@ class StateConfig(configparser.ConfigParser):
             ('general', 'backend-warning-shown'),
             ('general', 'old-qt-warning-shown'),
             ('general', 'serviceworker_workaround'),
+            ('general', 'session'),
             ('geometry', 'inspector'),
         ]
         for sect, key in deleted_keys:

@@ -12,7 +12,6 @@
 |Setting|Description
 |<<aliases,aliases>>|Aliases for commands.
 |<<auto_save.interval,auto_save.interval>>|Time interval (in milliseconds) between auto-saves of config/cookies/etc.
-|<<auto_save.session,auto_save.session>>|Always restore open sites when qutebrowser is reopened.
 |<<backend,backend>>|Backend to use to display websites.
 |<<bindings.commands,bindings.commands>>|Keybindings mapping keys to commands in different modes.
 |<<bindings.default,bindings.default>>|Default keybindings. If you want to add bindings, modify `bindings.commands` instead.
@@ -311,7 +310,6 @@
 |<<search.incremental,search.incremental>>|Find text on a page incrementally, renewing the search for each typed character.
 |<<search.wrap,search.wrap>>|Wrap around at the top and bottom of the page when advancing through text matches using `:search-next` and `:search-prev`.
 |<<search.wrap_messages,search.wrap_messages>>|Display messages when advancing through text matches at the top and bottom of the page, e.g. `Search hit TOP`.
-|<<session.default_name,session.default_name>>|Name of the session to save by default.
 |<<session.lazy_restore,session.lazy_restore>>|Load a restored tab as soon as it takes focus.
 |<<spellcheck.languages,spellcheck.languages>>|Languages to use for spell checking.
 |<<statusbar.padding,statusbar.padding>>|Padding (in pixels) for the statusbar.
@@ -377,9 +375,6 @@ Default:
 
 - +pass:[q]+: +pass:[close]+
 - +pass:[qa]+: +pass:[quit]+
-- +pass:[w]+: +pass:[session-save]+
-- +pass:[wq]+: +pass:[quit --save]+
-- +pass:[wqa]+: +pass:[quit --save]+
 
 [[auto_save.interval]]
 === auto_save.interval
@@ -388,16 +383,6 @@ Time interval (in milliseconds) between auto-saves of config/cookies/etc.
 Type: <<types,Int>>
 
 Default: +pass:[15000]+
-
-[[auto_save.session]]
-=== auto_save.session
-Always restore open sites when qutebrowser is reopened.
-Without this option set, `:wq` (`:quit --save`) needs to be used to save open tabs (and restore them), while quitting qutebrowser in any other way will not save/restore the session.
-By default, this will save to the session which was last loaded. This behavior can be customized via the `session.default_name` setting.
-
-Type: <<types,Bool>>
-
-Default: +pass:[false]+
 
 [[backend]]
 === backend
@@ -647,7 +632,7 @@ Default:
 * +pass:[U]+: +pass:[undo -w]+
 * +pass:[V]+: +pass:[mode-enter caret ;; selection-toggle --line]+
 * +pass:[ZQ]+: +pass:[quit]+
-* +pass:[ZZ]+: +pass:[quit --save]+
+* +pass:[ZZ]+: +pass:[quit]+
 * +pass:[[[]+: +pass:[navigate prev]+
 * +pass:[\]\]]+: +pass:[navigate next]+
 * +pass:[`]+: +pass:[mode-enter set_mark]+
@@ -4106,15 +4091,6 @@ Display messages when advancing through text matches at the top and bottom of th
 Type: <<types,Bool>>
 
 Default: +pass:[true]+
-
-[[session.default_name]]
-=== session.default_name
-Name of the session to save by default.
-If this is set to null, the session which was last loaded is saved.
-
-Type: <<types,SessionName>>
-
-Default: empty
 
 [[session.lazy_restore]]
 === session.lazy_restore
