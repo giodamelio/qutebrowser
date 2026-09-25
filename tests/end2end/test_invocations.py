@@ -331,6 +331,46 @@ def test_last_window_close_keeps_session(request, quteproc_new, short_tmpdir):
     quteproc_new.wait_for_quit()
 
 
+def test_open_sessions_restored_in_order(request, quteproc_new, short_tmpdir):
+    args = (_base_args(request.config) + ['--basedir', str(short_tmpdir)] +
+            ['-s', 'url.start_pages', '["about:blank"]'])
+    quteproc_new.start(args)
+    quteproc_new.send_cmd(':session-new work-order')
+    quteproc_new.wait_for(message='Saved session work-order')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    quteproc_new.compare_session("""
+        windows:
+            - session: default
+            - session: work-order
+    """)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
+def test_session_close_last_session_opens_default_next_time(
+        request, quteproc_new, short_tmpdir):
+    args = (_base_args(request.config) + ['--basedir', str(short_tmpdir)] +
+            ['-s', 'url.start_pages', '["about:blank"]'])
+    quteproc_new.start(args)
+    quteproc_new.send_cmd(':session-new work-last')
+    quteproc_new.wait_for(message='Saved session work-last')
+    quteproc_new.send_cmd(':session-close default')
+    quteproc_new.wait_for(message='Saved session default')
+    quteproc_new.send_cmd(':session-close work-last')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    quteproc_new.compare_session("""
+        windows:
+            - session: default
+    """)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
 def test_qute_settings_persistence(short_tmpdir, request, quteproc_new):
     """Make sure settings from qute://settings are persistent."""
     args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
