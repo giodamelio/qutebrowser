@@ -21,7 +21,7 @@ from qutebrowser.qt.gui import QColor, QFont
 from qutebrowser.qt.network import QNetworkProxy
 
 from qutebrowser.misc import objects
-from qutebrowser.config import configtypes, configexc
+from qutebrowser.config import configtypes, configexc, configdata
 from qutebrowser.utils import debug, utils, qtutils, urlmatch, usertypes
 from qutebrowser.browser.network import pac
 from qutebrowser.keyinput import keyutils
@@ -2188,3 +2188,44 @@ class TestJSClipboardPermission:
     ])
     def test_from_bool(self, typ, value, expected):
         assert typ.from_bool(value) == expected
+
+
+class TestContainerDefinition:
+
+    @pytest.fixture
+    def typ(self):
+        return configtypes.ContainerDefinition()
+
+    @pytest.mark.parametrize('val', [
+        {'color': '#ff0000'},
+        {'color': 'red'},
+        {'color': 'rgb(0, 128, 0)'},
+    ])
+    def test_to_py_valid(self, typ, val):
+        assert typ.to_py(val) == val
+
+    @pytest.mark.parametrize('val, match', [
+        ({}, 'may not be null'),
+        ({'colour': 'red'}, 'Expected keys'),
+        ({'color': 'red', 'icon': 'x'}, 'Expected keys'),
+        ({'color': 'notacolor'}, 'must be a valid color'),
+        ({'color': 3}, 'expected a value of type str'),
+    ])
+    def test_to_py_invalid(self, typ, val, match):
+        with pytest.raises(configexc.ValidationError, match=match):
+            typ.to_py(val)
+
+    def test_from_str(self, typ):
+        assert typ.from_str('{"color": "red"}') == {'color': 'red'}
+
+    def test_to_str(self, typ):
+        assert typ.to_str({'color': 'red'}) == '{"color": "red"}'
+
+
+def test_containers_setting_names(configdata_init):
+    typ = configdata.DATA['containers'].typ
+    assert typ.to_py({'default': {'color': 'red'},
+                      'aws-prod': {'color': 'red'}})
+    for name in ['Work', 'private-1', '-x', 'a b']:
+        with pytest.raises(configexc.ValidationError):
+            typ.to_py({name: {'color': 'red'}})

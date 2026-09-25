@@ -1467,6 +1467,39 @@ class Dict(BaseType):
                               required_keys=self.required_keys)
 
 
+class ContainerDefinition(Dict):
+
+    """The definition of one container: a mapping with a required `color`.
+
+    The color takes the same formats as `QtColor`. Other keys are refused, so
+    keys added later can't collide with a typo in an existing config.
+    """
+
+    def __init__(
+            self, *,
+            none_ok: bool = False,
+            completions: _Completions = None,
+    ) -> None:
+        super().__init__(keytype=String(), valtype=String(),
+                         fixed_keys=['color'], required_keys=['color'],
+                         none_ok=none_ok, completions=completions)
+
+    def _fill_fixed_keys(self, value: dict) -> dict:
+        # required_keys already forces 'color' to be given explicitly;
+        # unlike Padding, there's no sensible default to fill it with.
+        return value
+
+    def to_py(
+            self,
+            value: dict | _UnsetNone
+    ) -> dict | usertypes.Unset:
+        d = super().to_py(value)
+        if isinstance(d, usertypes.Unset) or not d:
+            return d
+        QtColor().to_py(d['color'])
+        return d
+
+
 class File(BaseType):
 
     """A file on the local filesystem."""

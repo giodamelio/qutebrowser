@@ -138,6 +138,7 @@
 |<<completion.web_history.exclude,completion.web_history.exclude>>|A list of patterns which should not be shown in the history.
 |<<completion.web_history.max_items,completion.web_history.max_items>>|Number of URLs to show in the web history.
 |<<confirm_quit,confirm_quit>>|Require a confirmation before quitting the application.
+|<<containers,containers>>|Containers that sessions can use, each with its own cookies, cache and site data.
 |<<content.autoplay,content.autoplay>>|Automatically start playing `<video>` elements.
 |<<content.blocking.adblock.lists,content.blocking.adblock.lists>>|List of URLs to ABP-style adblocking rulesets.
 |<<content.blocking.enabled,content.blocking.enabled>>|Enable the ad/host blocker
@@ -1928,6 +1929,16 @@ Valid values:
 Default: 
 
 - +pass:[never]+
+
+[[containers]]
+=== containers
+Containers that sessions can use, each with its own cookies, cache and site data.
+Each key is a container name: lowercase letters, digits, `_` and `-`, starting with a letter or digit, and not starting with `private-`. Each value is a mapping with a required `color`, in any format the `colors.*` settings accept.
+The `default` container always exists; list it here only to change its color. Containers created with `:container-new` are kept separately and don't appear here. A container defined here wins over one of the same name created with `:container-new`.
+
+Type: <<types,Dict>>
+
+Default: empty
 
 [[content.autoplay]]
 === content.autoplay
@@ -4813,6 +4824,9 @@ When setting from a string, `1`, `yes`, `on` and `true` count as true, while `0`
 |ColorSystem|The color system to use for color interpolation.
 |Command|A qutebrowser command with arguments.
 |ConfirmQuit|Whether to display a confirmation when the window is closed.
+|ContainerDefinition|The definition of one container: a mapping with a required `color`.
+
+The color takes the same formats as `QtColor`. Other keys are refused, so keys added later can't collide with a typo in an existing config.
 |Dict|A dictionary of values.
 
 When setting from a string, pass a json-like dict, e.g. `{"key", "value"}`.
