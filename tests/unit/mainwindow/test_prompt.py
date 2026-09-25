@@ -8,7 +8,7 @@ import pytest
 from qutebrowser.qt.core import Qt
 
 from qutebrowser.mainwindow import prompt as promptmod
-from qutebrowser.utils import usertypes
+from qutebrowser.utils import message, usertypes
 
 
 class TestFileCompletion:
@@ -113,3 +113,102 @@ class TestFileCompletion:
         """With / as path, show root contents."""
         prompt = get_prompt('/')
         assert prompt._file_model.rootPath() == '/'
+
+
+OPTIONS = [
+    ('work', 'work / default', 'Work page'),
+    ('play', 'play / games', 'Game page'),
+    ('mail', 'mail / default', 'Inbox'),
+]
+
+
+class TestSelectPrompt:
+
+    @pytest.fixture
+    def get_prompt(self, qtbot, config_stub, key_config_stub):
+        """Get a function to display a select prompt with some rows."""
+        config_stub.val.bindings.default = {}
+
+        def _get_prompt_func(options=OPTIONS):
+            question = usertypes.Question()
+            question.title = "Pick one"
+            question.mode = usertypes.PromptMode.select
+            question.options = options
+            prompt = promptmod.SelectPrompt(question)
+            qtbot.add_widget(prompt)
+            return prompt
+        return _get_prompt_func
+
+    def _labels(self, prompt):
+        model = prompt._model
+        return [model.index(row, 1).data() for row in range(model.rowCount())]
+
+    def test_rows_keep_their_order(self, get_prompt):
+        prompt = get_prompt()
+        assert self._labels(prompt) == [
+            'work / default', 'play / games', 'mail / default']
+
+    def test_accept_selects_first_row(self, get_prompt):
+        prompt = get_prompt()
+        assert prompt.accept()
+        assert prompt.question.answer == 'work'
+
+    @pytest.mark.parametrize('steps, which, key', [
+        (1, 'next', 'play'),
+        (2, 'next', 'mail'),
+        (3, 'next', 'work'),
+        (1, 'prev', 'mail'),
+    ])
+    def test_item_focus(self, get_prompt, steps, which, key):
+        prompt = get_prompt()
+        for _ in range(steps):
+            prompt.item_focus(which)
+        prompt.accept()
+        assert prompt.question.answer == key
+
+    def test_typing_filters(self, qtbot, get_prompt):
+        prompt = get_prompt()
+        qtbot.keyClicks(prompt._lineedit, 'default')
+        assert self._labels(prompt) == ['work / default', 'mail / default']
+        prompt.item_focus('next')
+        prompt.accept()
+        assert prompt.question.answer == 'mail'
+
+    def test_nothing_matches(self, qtbot, get_prompt):
+        prompt = get_prompt()
+        qtbot.keyClicks(prompt._lineedit, 'zzz')
+        assert self._labels(prompt) == []
+        prompt.item_focus('next')
+        with pytest.raises(promptmod.Error, match='No item matches'):
+            prompt.accept()
+        assert prompt.question.answer is None
+
+    def test_accept_value(self, get_prompt):
+        prompt = get_prompt()
+        assert prompt.accept('mail')
+        assert prompt.question.answer == 'mail'
+
+    def test_accept_invalid_value(self, get_prompt):
+        prompt = get_prompt()
+        with pytest.raises(promptmod.Error,
+                           match='expected one of: work, play, mail'):
+            prompt.accept('nope')
+
+
+def test_select_question_carries_options(message_mock):
+    message.ask_async('Pick one', usertypes.PromptMode.select,
+                      lambda _answer: None, options=OPTIONS)
+    question = message_mock.get_question()
+    assert question.options == OPTIONS
+
+
+def test_select_question_needs_options():
+    with pytest.raises(ValueError, match='needs options'):
+        message.ask_async('Pick one', usertypes.PromptMode.select,
+                          lambda _answer: None)
+
+
+def test_options_only_for_select():
+    with pytest.raises(ValueError, match="Can only give 'options'"):
+        message.ask_async('Sure?', usertypes.PromptMode.yesno,
+                          lambda _answer: None, options=OPTIONS)

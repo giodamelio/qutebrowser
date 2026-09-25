@@ -227,6 +227,7 @@ class PromptMode(enum.Enum):
     user_pwd = enum.auto()
     alert = enum.auto()
     download = enum.auto()
+    select = enum.auto()
 
 
 class ClickTarget(enum.Enum):
@@ -367,6 +368,8 @@ class Question(QObject):
         text: The prompt text to display to the user.
         url: Any URL referenced in prompts.
         option: Boolean option to be set when answering always/never.
+        options: For select, the rows to choose from, as (key, label,
+                 description). The answer is the chosen row's key.
         answer: The value the user entered (as password for user_pwd).
         is_aborted: Whether the question was aborted.
         interrupted: Whether the question was interrupted by another one.
@@ -399,6 +402,7 @@ class Question(QObject):
         self.text: str | None = None
         self.url: str | None = None
         self.option: bool | None = None
+        self.options: list[tuple[str, str, str]] = []
         self.answer: str | bool | None = None
         self.is_aborted = False
         self.interrupted = False
