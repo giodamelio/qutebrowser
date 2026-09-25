@@ -1,7 +1,9 @@
 Feature: Saving and loading sessions
 
   Background:
-    Given I clean up open tabs
+    Given I run :debug-close-other-sessions
+    And I clean up open tabs
+    And I set url.start_pages to ["about:blank"]
 
   Scenario: Saving a simple session
     When I open data/hello.txt
@@ -264,5 +266,132 @@ Feature: Saving and loading sessions
             title: Test title
           - active: true
             url: http://localhost:*/data/hello.txt
+      """
+
+  # :session-* commands
+
+  Scenario: Creating a session opens it in a new window
+    When I run :session-new work-new
+    And I wait for "Saved session work-new" in the log
+    Then the session work-new should exist
+    And the session should look like:
+      """
+      windows:
+      - session: default
+      - session: work-new
+        tabs:
+        - history:
+          - url: about:blank
+      """
+
+  Scenario: Creating a session named default
+    When I run :session-new default
+    Then the error "'default' is reserved" should be shown
+
+  Scenario: Creating a session with an invalid name
+    When I run :session-new Work
+    Then the error "Invalid name 'Work': use lowercase letters, digits, '_' and '-', starting with a letter or digit" should be shown
+
+  Scenario: Creating a session without a name
+    When I run :session-new
+    Then the error "Give a session name, or use --private" should be shown
+
+  Scenario: Creating a private session
+    When I run :session-new --private
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+      - session: private-*
+        private: true
+      """
+
+  Scenario: Combining --private with a name
+    When I run :session-new --private work-private
+    Then the error "--private can't be combined with a name or --container" should be shown
+
+  Scenario: Closing and reopening a session restores its windows
+    When I run :session-new work-reopen
+    And I open data/numbers/1.txt
+    And I run :session-close work-reopen
+    And I wait for "Saved session work-reopen" in the log
+    And I run :session-open work-reopen
+    And I wait until data/numbers/1.txt is loaded
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+      - session: work-reopen
+        tabs:
+        - history:
+          - url: http://localhost:*/data/numbers/1.txt
+      """
+
+  Scenario: Opening an unknown session
+    When I run :session-open inexistent-session
+    Then the error "Session inexistent-session not found!" should be shown
+
+  Scenario: Deleting an open session
+    When I run :session-new work-delete-open
+    And I run :session-delete work-delete-open
+    Then the error "Session work-delete-open is open, close it first" should be shown
+
+  Scenario: Deleting a closed session
+    When I run :session-new work-delete
+    And I run :session-close work-delete
+    And I run :session-delete work-delete
+    Then the session work-delete should not exist
+
+  Scenario: Deleting the default session
+    When I run :session-delete default
+    Then the error "Session default can't be deleted" should be shown
+
+  Scenario: Renaming a session
+    When I run :session-new work-old
+    And I run :session-rename work-old work-renamed
+    Then the session work-renamed should exist
+    And the session work-old should not exist
+
+  Scenario: Moving a window into another session
+    When I run :session-new work-move
+    And I open data/numbers/2.txt
+    And I run :session-move-window default
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+      - session: default
+      """
+    And the session file work-move should not contain "numbers/2.txt"
+
+  Scenario: Moving a private window
+    When I open about:blank in a private window
+    And I run :session-move-window default
+    Then the error "Can't move windows into or out of private sessions" should be shown
+
+  Scenario: Pinned tabs survive closing and reopening a session
+    When I run :session-new work-pin
+    And I open data/numbers/1.txt
+    And I open data/numbers/2.txt in a new tab
+    And I open data/numbers/3.txt in a new tab
+    And I run :tab-pin with count 2
+    And I run :session-close work-pin
+    And I wait for "Saved session work-pin" in the log
+    And I run :session-open work-pin
+    And I wait until data/numbers/3.txt is loaded
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+      - session: work-pin
+        tabs:
+        - history:
+          - url: http://localhost:*/data/numbers/1.txt
+        - history:
+          - url: http://localhost:*/data/numbers/2.txt
+            pinned: true
+        - history:
+          - url: http://localhost:*/data/numbers/3.txt
+            pinned: false
       """
 
