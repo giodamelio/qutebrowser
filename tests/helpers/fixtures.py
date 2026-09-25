@@ -19,6 +19,7 @@ import types
 import mimetypes
 import os.path
 import dataclasses
+import pathlib
 
 import pytest
 import py.path
@@ -34,6 +35,7 @@ from qutebrowser.api import config as configapi
 from qutebrowser.utils import objreg, standarddir, utils, usertypes, version
 from qutebrowser.browser import greasemonkey, history, qutescheme
 from qutebrowser.browser.webkit import cookies, cache
+from qutebrowser.misc import containers
 from qutebrowser.misc import savemanager, sql, objects
 from qutebrowser.keyinput import modeman
 from qutebrowser.mainwindow import windowsessions
@@ -624,6 +626,16 @@ def cache_tmpdir(monkeypatch, tmpdir):
     Use this to avoid creating a 'real' cache dir (~/.cache/qute_test).
     """
     return standarddir_tmpdir('cache', monkeypatch, tmpdir)
+
+
+@pytest.fixture
+def container_registry(config_stub, data_tmpdir, cache_tmpdir, monkeypatch):
+    """A container registry on the temporary data and cache dirs."""
+    registry = containers.ContainerRegistry(pathlib.Path(str(data_tmpdir)),
+                                            pathlib.Path(str(cache_tmpdir)))
+    registry.load()
+    monkeypatch.setattr(containers, 'registry', registry)
+    return registry
 
 
 @pytest.fixture

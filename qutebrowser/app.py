@@ -50,7 +50,7 @@ from qutebrowser.keyinput import macros, eventfilter
 from qutebrowser.mainwindow import mainwindow, prompt, windowundo, windowsessions
 from qutebrowser.misc import (ipc, savemanager, sessioncommands, crashsignal,
                               earlyinit, sql, cmdhistory, backendproblem,
-                              objects, quitter, nativeeventfilter)
+                              objects, quitter, nativeeventfilter, containers)
 from qutebrowser.utils import (log, version, message, utils, urlutils, objreg,
                                resources, usertypes, standarddir,
                                error, qtutils, debug)
@@ -481,6 +481,9 @@ def _init_modules(*, args):
     log.init.debug("Initializing websettings...")
     websettings.init(args)
     quitter.instance.shutting_down.connect(websettings.shutdown)
+
+    log.init.debug("Initializing containers...")
+    containers.init(objects.qapp)
 
     log.init.debug("Initializing window sessions...")
     windowsessions.init()
