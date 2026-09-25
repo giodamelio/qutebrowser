@@ -78,6 +78,19 @@ def init() -> None:
     bridge = NotificationBridgePresenter()
 
 
+def notify(title: str, body: str) -> None:
+    """Show a desktop notification from qutebrowser itself.
+
+    With the qt presenter there is no bridge, and with the messages presenter
+    no desktop notification; the caller's own message is then the only output.
+    """
+    if bridge is None:
+        log.misc.debug(f"Not sending notification {title!r}: no notification bridge")
+        return
+    bridge.notify(NotificationRecord(title=title, body=body, origin=QUrl(),
+                                     icon=QImage()))
+
+
 class Error(Exception):
     """Raised when something goes wrong with notifications."""
 
@@ -128,6 +141,28 @@ class DBusError(Error):
         super().__init__(text)
 
 
+@dataclasses.dataclass(frozen=True)
+class NotificationRecord:
+
+    """What an adapter shows, from a web page or from qutebrowser itself."""
+
+    title: str
+    body: str
+    origin: QUrl
+    icon: QImage
+    tag: str = ''
+
+    @classmethod
+    def from_qt(cls, qt_notification: "QWebEngineNotification") -> "NotificationRecord":
+        return cls(
+            title=qt_notification.title(),
+            body=qt_notification.message(),
+            origin=qt_notification.origin(),
+            icon=qt_notification.icon(),
+            tag=qt_notification.tag(),
+        )
+
+
 class AbstractNotificationAdapter(QObject):
 
     """An adapter taking notifications and displaying them.
@@ -152,7 +187,7 @@ class AbstractNotificationAdapter(QObject):
 
     def present(
         self,
-        qt_notification: "QWebEngineNotification",
+        record: NotificationRecord,
         *,
         replaces_id: int | None,
     ) -> int:
@@ -276,7 +311,7 @@ class NotificationBridgePresenter(QObject):
         qtutils.ensure_valid(qt_notification.origin())
 
         notification_id = self._adapter.present(
-            qt_notification, replaces_id=replaces_id)
+            NotificationRecord.from_qt(qt_notification), replaces_id=replaces_id)
         log.misc.debug(f"New notification ID from adapter: {notification_id}")
 
         if self._adapter is None:
@@ -296,6 +331,27 @@ class NotificationBridgePresenter(QObject):
 
         qt_notification.closed.connect(
             functools.partial(self._adapter.on_web_closed, notification_id))
+
+    def notify(self, record: NotificationRecord) -> None:
+        """Show a notification from qutebrowser itself.
+
+        Nothing on the web side waits for it, so clicks and closes reported for
+        it are ignored like those of other applications.
+        """
+        if self._adapter is None:
+            self._init_adapter()
+            assert self._adapter is not None
+
+        if isinstance(self._adapter, MessagesNotificationAdapter):
+            # The caller shows its own message; a second one would repeat it.
+            log.misc.debug(f"Not showing notification {record.title!r} as a message")
+            return
+
+        try:
+            self._adapter.present(record, replaces_id=None)
+        except Error as e:
+            message.error(f"Failed to show notification: {e}")
+            self._drop_adapter()
 
     def _find_replaces_id(
         self,
@@ -439,7 +495,7 @@ class SystrayNotificationAdapter(AbstractNotificationAdapter):
 
     def present(
         self,
-        qt_notification: "QWebEngineNotification",
+        record: NotificationRecord,
         *,
         replaces_id: int | None,
     ) -> int:
@@ -447,10 +503,10 @@ class SystrayNotificationAdapter(AbstractNotificationAdapter):
         self.close_id.emit(self.NOTIFICATION_ID)
         self._systray.show()
 
-        icon = self._convert_icon(qt_notification.icon())
-        msg = self._format_message(qt_notification.message(), qt_notification.origin())
+        icon = self._convert_icon(record.icon)
+        msg = self._format_message(record.body, record.origin)
 
-        self._systray.showMessage(qt_notification.title(), msg, icon)
+        self._systray.showMessage(record.title, msg, icon)
 
         return self.NOTIFICATION_ID
 
@@ -501,11 +557,11 @@ class MessagesNotificationAdapter(AbstractNotificationAdapter):
 
     def present(
         self,
-        qt_notification: "QWebEngineNotification",
+        record: NotificationRecord,
         *,
         replaces_id: int | None,
     ) -> int:
-        markup = self._format_message(qt_notification)
+        markup = self._format_message(record)
         new_id = replaces_id if replaces_id is not None else next(self._id_gen)
 
         message.info(markup, replace=f'notifications-{new_id}', rich=True)
@@ -520,13 +576,13 @@ class MessagesNotificationAdapter(AbstractNotificationAdapter):
     def on_web_closed(self, _notification_id: int) -> None:
         """We can't close messages."""
 
-    def _format_message(self, qt_notification: "QWebEngineNotification") -> str:
-        title = html.escape(qt_notification.title())
-        body = html.escape(qt_notification.message())
-        hint = "" if qt_notification.icon().isNull() else " (image not shown)"
+    def _format_message(self, record: NotificationRecord) -> str:
+        title = html.escape(record.title)
+        body = html.escape(record.body)
+        hint = "" if record.icon.isNull() else " (image not shown)"
 
-        if self._should_include_origin(qt_notification.origin()):
-            url = html.escape(qt_notification.origin().toDisplayString())
+        if self._should_include_origin(record.origin):
+            url = html.escape(record.origin.toDisplayString())
             origin_str = f" from {url}"
         else:
             origin_str = ""
@@ -561,7 +617,7 @@ class HerbeNotificationAdapter(AbstractNotificationAdapter):
 
     def present(
         self,
-        qt_notification: "QWebEngineNotification",
+        record: NotificationRecord,
         *,
         replaces_id: int | None,
     ) -> int:
@@ -571,7 +627,7 @@ class HerbeNotificationAdapter(AbstractNotificationAdapter):
         proc = QProcess(self)
         proc.errorOccurred.connect(self._on_error)
 
-        lines = list(self._message_lines(qt_notification))
+        lines = list(self._message_lines(record))
         proc.start('herbe', lines)
 
         pid = proc.processId()
@@ -582,18 +638,18 @@ class HerbeNotificationAdapter(AbstractNotificationAdapter):
 
     def _message_lines(
         self,
-        qt_notification: "QWebEngineNotification",
+        record: NotificationRecord,
     ) -> Iterator[str]:
         """Get the lines to display for this notification."""
-        yield qt_notification.title()
+        yield record.title
 
-        origin = qt_notification.origin()
+        origin = record.origin
         if self._should_include_origin(origin):
             yield origin.toDisplayString()
 
-        yield qt_notification.message()
+        yield record.body
 
-        if not qt_notification.icon().isNull():
+        if not record.icon.isNull():
             yield "(icon not shown)"
 
     def _on_finished(self, pid: int, code: int, status: QProcess.ExitStatus) -> None:
@@ -1007,7 +1063,7 @@ class DBusNotificationAdapter(AbstractNotificationAdapter):
 
     def present(
         self,
-        qt_notification: "QWebEngineNotification",
+        record: NotificationRecord,
         *,
         replaces_id: int | None,
     ) -> int:
@@ -1019,15 +1075,15 @@ class DBusNotificationAdapter(AbstractNotificationAdapter):
             appname="qutebrowser",
             replaces_id=_as_uint32(replaces_id),
             icon="",  # we use image-data and friends instead
-            title=self._get_title_arg(qt_notification.title()),
+            title=self._get_title_arg(record.title),
             body=self._format_body(
-                body=qt_notification.message(),
-                origin_url=qt_notification.origin(),
+                body=record.body,
+                origin_url=record.origin,
             ),
             actions=self._get_actions_arg(),
             hints=self._get_hints_arg(
-                origin_url=qt_notification.origin(),
-                icon=qt_notification.icon(),
+                origin_url=record.origin,
+                icon=record.icon,
             ),
             timeout=-1,  # use default
         )
