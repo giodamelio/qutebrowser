@@ -64,6 +64,17 @@ def qute_containers(_url: QUrl) -> tuple[str, str]:
 
 
 @dataclasses.dataclass(frozen=True)
+class ClosedWindowRow:
+
+    """One entry of a session's closed-window history."""
+
+    index: int
+    closed_at: str
+    tabs: int
+    title: str
+
+
+@dataclasses.dataclass(frozen=True)
 class SessionRow:
 
     """One saved session on qute://sessions."""
@@ -74,6 +85,7 @@ class SessionRow:
     is_open: bool
     counts: str
     last_saved: str
+    closed_windows: list[ClosedWindowRow]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -118,6 +130,60 @@ def _last_saved(session: windowsessions.Session) -> str:
     return when.strftime(_TIME_FORMAT)
 
 
+def _closed_at(value: Any) -> str:
+    """Format a closed-window timestamp in local time.
+
+    YAML reads an unquoted ISO 8601 timestamp back as a datetime and a quoted
+    one as a string, so both occur. Anything else is shown as it is.
+    """
+    if isinstance(value, str):
+        try:
+            value = datetime.datetime.fromisoformat(value)
+        except ValueError:
+            return value
+    if not isinstance(value, datetime.datetime):
+        return str(value)
+    if value.tzinfo is None:
+        # closed_at is always UTC, even when it lost its offset.
+        value = value.replace(tzinfo=datetime.timezone.utc)
+    return value.astimezone().strftime(_TIME_FORMAT)
+
+
+def _first_title(window: Mapping[str, Any]) -> str:
+    """Get the title of the page the window's first tab showed."""
+    tabs = window.get('tabs', [])
+    if not isinstance(tabs, list) or not tabs or not isinstance(tabs[0], Mapping):
+        return ''
+    history = tabs[0].get('history', [])
+    items = [item for item in history if isinstance(item, Mapping)] \
+        if isinstance(history, list) else []
+    if not items:
+        return ''
+    item = next((item for item in items if item.get('active')), items[-1])
+    return item.get('title') or item.get('url', '')
+
+
+def _closed_windows(session: windowsessions.Session) -> list[ClosedWindowRow]:
+    rows = []
+    # Numbered from 1, newest first, as :session-restore-window counts them.
+    for index, entry in enumerate(session.closed_windows, start=1):
+        # closed_windows comes from hand-editable session files (or direct
+        # mutation), so entry and window shapes aren't guaranteed.
+        if not isinstance(entry, Mapping):
+            entry = {}
+        window = entry.get('window', {})
+        if not isinstance(window, Mapping):
+            window = {}
+        tabs = window.get('tabs', [])
+        rows.append(ClosedWindowRow(
+            index=index,
+            closed_at=_closed_at(entry.get('closed_at', 'unknown')),
+            tabs=len(tabs) if isinstance(tabs, list) else 0,
+            title=_first_title(window),
+        ))
+    return rows
+
+
 def _unreadable_paths(
         manager: windowsessions.SessionManager) -> list[pathlib.Path]:
     # The manager has no public query for these. E and F change
@@ -140,6 +206,7 @@ def qute_sessions(_url: QUrl) -> tuple[str, str]:
             counts=(_live_counts(session) if session.is_open
                     else _saved_counts(session.saved_windows)),
             last_saved=_last_saved(session),
+            closed_windows=_closed_windows(session),
         )
         for session in manager.sessions() if not session.private
     ]

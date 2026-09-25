@@ -45,6 +45,21 @@ th {
 <h2>{{ row.name }}</h2>
 <p class="container">Container: {{ row.container }} <span class="swatch" style="background-color: {{ row.swatch }}"></span></p>
 <p class="state">{% if row.is_open %}open{% else %}closed{% endif %}, {{ row.counts }}, last saved {{ row.last_saved }}</p>
+{% if row.closed_windows %}
+<p class="history">{{ row.closed_windows|length }} closed window{% if row.closed_windows|length != 1 %}s{% endif %}:</p>
+<table class="closed-windows">
+    <thead>
+    <tr><th>#</th><th>Closed</th><th>Tabs</th><th>First page</th><th>Restore with</th></tr>
+    </thead>
+    <tbody>
+    {% for entry in row.closed_windows %}
+    <tr><td class="index">{{ entry.index }}</td><td class="closed-at">{{ entry.closed_at }}</td><td class="tabs">{{ entry.tabs }}</td><td class="title">{{ entry.title }}</td><td class="mono">:session-restore-window {{ row.name }} {{ entry.index }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="history">No closed windows.</p>
+{% endif %}
 </section>
 {% endfor %}
 {% if private %}
