@@ -262,12 +262,12 @@ Feature: Using private browsing
             """
 
     Scenario: Closing a private window adds nothing to window undo
-        # Setting the size to 0 empties the window undo stack, so
+        # A cap of 0 empties every session's closed-window history, so
         # windows closed by earlier scenarios can't be undone here.
-        When I set tabs.undo_stack_size to 0
-        And I set tabs.undo_stack_size to 100
+        When I set session.closed_windows_max to 0
+        And I set session.closed_windows_max to 10
         And I open about:blank in a private window
-        And I run :close
+        And the newest window runs :close
         And I wait for "removed: main-window" in the log
         And I run :undo --window
         Then the error "Nothing to undo" should be shown

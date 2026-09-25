@@ -16,10 +16,11 @@ import enum
 from typing import Any
 
 from qutebrowser.api import cmdutils
+from qutebrowser.completion.models import miscmodels
 from qutebrowser.config import config
 from qutebrowser.mainwindow import windowsessions
 from qutebrowser.misc import sessionfile
-from qutebrowser.utils import message, objreg, usertypes
+from qutebrowser.utils import log, message, objreg, usertypes
 
 
 class CloseChoice(enum.Enum):
@@ -36,6 +37,16 @@ class CloseChoice(enum.Enum):
     session = 'session'
     cancel = 'cancel'
     plain = 'plain'
+
+
+class Error(Exception):
+
+    """A closed window could not be restored."""
+
+
+class NothingToRestoreError(Error):
+
+    """No session has a closed window."""
 
 
 def close_choice(window: Any, preset: CloseChoice | None = None) -> CloseChoice:
@@ -134,3 +145,108 @@ def _on_config_changed() -> None:
 def init() -> None:
     """Keep every session's history within session.closed_windows_max."""
     config.instance.changed.connect(_on_config_changed)
+
+
+_OLDEST = datetime.datetime.min.replace(tzinfo=datetime.UTC)
+
+
+def _closed_at(entry: sessionfile.JsonType) -> datetime.datetime:
+    value = entry.get('closed_at')
+    if isinstance(value, datetime.datetime):
+        closed_at = value
+    else:
+        try:
+            closed_at = datetime.datetime.fromisoformat(str(value))
+        except ValueError:
+            log.sessions.warning(
+                f"Closed window with unreadable time {value!r} counts as the "
+                "oldest")
+            return _OLDEST
+    if closed_at.tzinfo is None:
+        closed_at = closed_at.replace(tzinfo=datetime.UTC)
+    return closed_at
+
+
+def newest() -> tuple[windowsessions.Session, int]:
+    """Find the most recently closed window across all sessions.
+
+    Return:
+        The session and the entry's index in its history.
+    """
+    candidates = [
+        (_closed_at(entry), session, index)
+        for session in windowsessions.manager.sessions() if not session.private
+        for index, entry in enumerate(session.closed_windows)
+    ]
+    if not candidates:
+        raise NothingToRestoreError("Nothing to undo")
+    _closed, session, index = max(candidates,
+                                  key=lambda candidate: candidate[0])
+    return session, index
+
+
+def restore(session: windowsessions.Session, index: int) -> Any:
+    """Reopen a session's closed window in that session.
+
+    A closed session with saved windows is opened first, so the restored
+    window doesn't replace them in its file.
+
+    Args:
+        session: The session the window belongs to.
+        index: The history entry, 0 being the most recently closed.
+    """
+    entry = session.closed_windows[index]
+    data = entry.get('window')
+    if not isinstance(data, dict):
+        raise Error(f"Closed window {index + 1} of session {session.name} "
+                    "has no window data")
+    # sessioncommands imports this module.
+    from qutebrowser.misc import sessioncommands
+    sessioncommands.open_before_joining(session)
+    try:
+        window = sessionfile.restore_window(data, session)
+    except sessionfile.SessionFileError as e:
+        raise Error(str(e))
+    del session.closed_windows[index]
+    windowsessions.manager.mark_dirty(session)
+    return window
+
+
+def undo_newest() -> Any:
+    """Reopen the most recently closed window, in its own session."""
+    session, index = newest()
+    return restore(session, index)
+
+
+@cmdutils.register()
+@cmdutils.argument('name', completion=miscmodels.session)
+@cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+def session_restore_window(name: str | None = None, index: int = 1, *,
+                           win_id: int | None = None) -> None:
+    """Reopen a window from a session's closed-window history.
+
+    The session is opened first if it is closed.
+
+    Args:
+        name: The session. Defaults to the current window's.
+        index: Which closed window to reopen, 1 being the most recently
+               closed.
+    """
+    if name is None:
+        assert win_id is not None
+        session = objreg.window_registry[win_id].session
+    else:
+        try:
+            session = windowsessions.manager.get(name)
+        except windowsessions.UnknownSessionError as e:
+            raise cmdutils.CommandError(str(e))
+    if session.private:
+        raise cmdutils.CommandError(
+            f"Private session {session.name} keeps no closed windows")
+    if not 1 <= index <= len(session.closed_windows):
+        raise cmdutils.CommandError(
+            f"Session {session.name} has no closed window {index}")
+    try:
+        restore(session, index - 1)
+    except Error as e:
+        raise cmdutils.CommandError(str(e))

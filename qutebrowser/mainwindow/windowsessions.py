@@ -482,6 +482,20 @@ class SessionManager:
         self._set_closed(session)
         self._closing.add(session.name)
 
+    def unlist(self, session: Session) -> bool:
+        """Drop a session without windows from the open list.
+
+        A regular session stays listed without windows when its last window
+        closed while private windows remained (§17.1).
+
+        Return:
+            Whether the session was listed.
+        """
+        if session.windows or session.name not in self._open_order:
+            return False
+        self._set_closed(session)
+        return True
+
     def move_window(self, window: Any, target: Session) -> None:
         """Move a window into another session with the same profile.
 

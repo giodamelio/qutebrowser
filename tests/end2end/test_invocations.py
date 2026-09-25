@@ -1297,3 +1297,45 @@ def test_quit_does_not_ask_about_closing_windows(request, quteproc_new,
     """)
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()
+
+
+def _session_window_id(quteproc, name):
+    """Get the id of the first window of a session."""
+    windows = quteproc.get_session()['windows']
+    return next(win['win_id'] for win in windows if win['session'] == name)
+
+
+def test_undo_window_after_restart(request, quteproc_new, short_tmpdir):
+    """A closed window comes back in its own session after a restart."""
+    args = (_base_args(request.config) + ['--basedir', str(short_tmpdir)] +
+            ['-s', 'url.start_pages', '["about:blank"]'])
+    quteproc_new.start(args)
+    quteproc_new.send_cmd(':container-new undo-restart')
+    quteproc_new.send_cmd(':session-new undo-work --container undo-restart')
+    quteproc_new.wait_for(message='Saved session undo-work')
+    url = quteproc_new.path_to_url('data/numbers/5.txt')
+    work_id = _session_window_id(quteproc_new, 'undo-work')
+    quteproc_new.send_cmd(f':debug-run-in-window {work_id} open -w {url}')
+    quteproc_new.wait_for_load_finished('data/numbers/5.txt')
+    newest = max(win['win_id']
+                 for win in quteproc_new.get_session()['windows'])
+    quteproc_new.send_cmd(
+        f':debug-run-in-window {newest} window-close --no-prompt')
+    quteproc_new.wait_for(message='removed: main-window')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    quteproc_new.send_cmd(':undo -w')
+    quteproc_new.wait_for_load_finished('data/numbers/5.txt')
+    quteproc_new.compare_session("""
+        windows:
+            - session: default
+            - session: undo-work
+            - session: undo-work
+              tabs:
+              - history:
+                - url: http://localhost:*/data/numbers/5.txt
+    """)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()

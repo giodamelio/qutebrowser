@@ -593,3 +593,42 @@ Feature: Saving and loading sessions
     And I wait for "removed: main-window" in the log
     And I wait for "removed: main-window" in the log
     Then session close-reentrant should have 0 windows
+
+  # Closed-window history
+
+  Scenario: Undo brings a window back into its closed session
+    When I clear the log
+    And I run :session-new undo-closed
+    And the window of session undo-closed runs :open -w http://localhost:(port)/data/numbers/3.txt
+    And I wait until data/numbers/3.txt is loaded
+    And the newest window runs :window-close --no-prompt
+    And I wait for "removed: main-window" in the log
+    And I run :session-close undo-closed
+    And I wait for "removed: main-window" in the log
+    And I run :undo -w
+    And I wait until data/numbers/3.txt is loaded
+    Then session undo-closed should have 2 windows
+
+  Scenario: Restoring a specific closed window
+    When I clear the log
+    And I run :session-new restore-pick
+    And the window of session restore-pick runs :open -w http://localhost:(port)/data/numbers/4.txt
+    And I wait until data/numbers/4.txt is loaded
+    And the newest window runs :open -w http://localhost:(port)/data/numbers/5.txt
+    And I wait until data/numbers/5.txt is loaded
+    And the newest window runs :window-close --no-prompt
+    And I wait for "removed: main-window" in the log
+    And the newest window runs :window-close --no-prompt
+    And I wait for "removed: main-window" in the log
+    And I run :session-restore-window restore-pick 2
+    And I wait until data/numbers/5.txt is loaded
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+      - session: restore-pick
+      - session: restore-pick
+        tabs:
+        - history:
+          - url: http://localhost:*/data/numbers/5.txt
+      """

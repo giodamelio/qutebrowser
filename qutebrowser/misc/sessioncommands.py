@@ -156,6 +156,8 @@ def session_close(name: str | None = None, *,
     else:
         session = _session(name)
     if not session.is_open:
+        if windowsessions.manager.unlist(session):
+            return
         raise cmdutils.CommandError(f"Session {session.name} is not open")
     close_session(session)
 

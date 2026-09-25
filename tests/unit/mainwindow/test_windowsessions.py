@@ -2,10 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import collections
 import itertools
 import logging
-import types
 
 import pytest
 
@@ -13,7 +11,7 @@ pytest.importorskip('qutebrowser.qt.webenginecore')
 
 from qutebrowser.api import cmdutils
 from qutebrowser.browser.webengine import profiles
-from qutebrowser.mainwindow import mainwindow, windowsessions, windowundo
+from qutebrowser.mainwindow import mainwindow, windowsessions
 from qutebrowser.misc import containers, sessioncommands, sessionfile
 from qutebrowser.utils import objreg, qtutils, usertypes
 
@@ -629,19 +627,6 @@ def test_new_window_restores_closed_default(manager, windows, base_path,
                                            {'win': 12}]
 
 
-def test_undo_window_restores_closed_default(manager, windows, base_path,
-                                             fake_mainwindow):
-    open_window(manager, windows, manager.new_session('work'), 1)
-    manager.default.saved_windows = [{'win': 'a'}]
-    undo_manager = types.SimpleNamespace(_undos=collections.deque([
-        windowundo._WindowUndoEntry(geometry=None, tab_stack=[])]))
-
-    windowundo.WindowUndoManager.undo_last_window_close(undo_manager)
-    manager.save_dirty()
-
-    assert saved(base_path, 'default') == [{'win': 10}, {'win': 11}]
-
-
 @pytest.fixture
 def work_with_bad_window(manager, base_path, monkeypatch, fake_mainwindow):
     work = manager.new_session('work')
@@ -991,3 +976,19 @@ def test_colors_after_declared_container_removed(manager, container_registry,
 
     assert seen
     assert seen[-1] == (containers.FALLBACK_COLOR, '#000000')
+
+
+def test_session_close_unlists_session_without_windows(manager, windows,
+                                                       state_config):
+    regular = open_window(manager, windows, manager.default, 1)
+    open_window(manager, windows, manager.new_private(), 2)
+    manager.window_closing(regular)
+    manager.remove_window(manager.default, 1)
+    assert open_list(state_config) == 'default'
+
+    sessioncommands.session_close('default')
+    assert open_list(state_config) == ''
+
+    with pytest.raises(cmdutils.CommandError,
+                       match='Session default is not open'):
+        sessioncommands.session_close('default')

@@ -65,14 +65,14 @@ Feature: Containers
         And I set containers to {}
         Then the message "Keeping container decl-a as a runtime container, because sessions use it: decl-session" should be shown
 
-    Scenario: Closing a container window adds nothing to window undo
-        # Setting the size to 0 empties the window undo stack, so
-        # windows closed by earlier scenarios can't be undone here.
-        When I set tabs.undo_stack_size to 0
-        And I set tabs.undo_stack_size to 100
+    Scenario: A closed container window comes back in its container
+        When I clear the log
         And I run :container-new undo-a
         And I run :session-new undo-session --container undo-a
-        And I run :close
+        And the window of session undo-session runs :open -w http://localhost:(port)/data/numbers/1.txt
+        And I wait until data/numbers/1.txt is loaded
+        And the newest window runs :window-close --no-prompt
         And I wait for "removed: main-window" in the log
         And I run :undo --window
-        Then the error "Nothing to undo" should be shown
+        And I wait until data/numbers/1.txt is loaded
+        Then session undo-session should have 2 windows

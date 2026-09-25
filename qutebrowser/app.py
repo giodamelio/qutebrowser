@@ -47,7 +47,7 @@ from qutebrowser.browser.webkit import cookies, cache
 from qutebrowser.browser.webkit.network import networkmanager
 from qutebrowser.extensions import loader
 from qutebrowser.keyinput import macros, eventfilter
-from qutebrowser.mainwindow import mainwindow, prompt, windowundo, windowsessions
+from qutebrowser.mainwindow import mainwindow, prompt, windowsessions
 from qutebrowser.misc import (ipc, savemanager, sessioncommands, crashsignal,
                               earlyinit, sql, cmdhistory, backendproblem,
                               objects, quitter, nativeeventfilter, containers,
@@ -534,7 +534,6 @@ def _init_modules(*, args):
 
     log.init.debug("Misc initialization...")
     macros.init()
-    windowundo.init()
     nativeeventfilter.init()
 
 
