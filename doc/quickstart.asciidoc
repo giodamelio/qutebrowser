@@ -18,7 +18,7 @@ Basic keybindings to get you started
 * To click on something without using the mouse, press `f` to show the hints, then type the keys next to what you want to click on (if that sounds weird, then just try pressing `f` and see what happens)
 * Press `:` to show the commandline
 * To search in a page, press `/`, type the phrase to search for, then press Enter. Use `n` and `N` to go back and forth through the matches, and press Esc to stop doing the search.
-* To close qutebrowser, press `Alt-F4`, or `:q`, or `:wq` to save the currently open tabs and quit (note that in the settings you can make qutebrowser always save the currently open tabs)
+* To close qutebrowser, press `Alt-F4` or `:q`. Your open windows and tabs are always saved and come back at the next start.
 
 What to do now
 --------------
