@@ -2,7 +2,8 @@ Feature: Invoking a new process
     Simulate what happens when running qutebrowser with an existing instance
 
     Background:
-        Given I clean up open tabs
+        Given I run :debug-close-other-sessions
+        And I clean up open tabs
 
     Scenario: Using new_instance_open_target = tab
         When I set new_instance_open_target to tab
