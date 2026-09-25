@@ -462,8 +462,8 @@ class TestYaml:
     @pytest.mark.parametrize('key, value', [
         ('colors.hints.fg', 'green'),
         ('colors.hints.bg', None),
-        ('confirm_quit', True),
-        ('confirm_quit', False),
+        ('scrolling.smooth', True),
+        ('scrolling.smooth', False),
     ])
     def test_changed(self, yaml, qtbot, autoconfig,
                      old_config, key, value):

@@ -1070,13 +1070,12 @@ Feature: Tab management
     # :undo --window
 
     Scenario: Undo the closing of a window
-        Given I clear the log
         When I open data/numbers/1.txt
         And I open data/numbers/2.txt in a new window
-        And I run :close
-        And I wait for "removed: tabbed-browser" in the log
+        And the newest window runs :window-close --no-prompt
+        And I wait for "removed: main-window" in the log
         And I run :undo -w
-        And I wait for "Focus object changed: *" in the log
+        And I wait until data/numbers/2.txt is loaded
         Then the session should look like:
             """
             windows:
@@ -1085,22 +1084,21 @@ Feature: Tab management
                 history:
                 - url: about:blank
                 - url: http://localhost:*/data/numbers/1.txt
-            - active: true
-              tabs:
+            - tabs:
               - active: true
                 history:
                 - url: http://localhost:*/data/numbers/2.txt
             """
 
     Scenario: Undo the closing of a window with multiple tabs
-        Given I clear the log
         When I open data/numbers/1.txt
         And I open data/numbers/2.txt in a new window
-        And I open data/numbers/3.txt in a new tab
-        And I run :close
-        And I wait for "removed: tabbed-browser" in the log
+        And the newest window runs :open -t http://localhost:(port)/data/numbers/3.txt
+        And I wait until data/numbers/3.txt is loaded
+        And the newest window runs :window-close --no-prompt
+        And I wait for "removed: main-window" in the log
         And I run :undo -w
-        And I wait for "Focus object changed: *" in the log
+        And I wait until data/numbers/3.txt is loaded
         Then the session should look like:
             """
             windows:
@@ -1109,36 +1107,7 @@ Feature: Tab management
                 history:
                 - url: about:blank
                 - url: http://localhost:*/data/numbers/1.txt
-            - active: true
-              tabs:
-              - history:
-                - url: http://localhost:*/data/numbers/2.txt
-              - active: true
-                history:
-                - url: http://localhost:*/data/numbers/3.txt
-            """
-
-    Scenario: Undo the closing of a window with multiple tabs with undo stack
-        Given I clear the log
-        When I open data/numbers/1.txt
-        And I open data/numbers/2.txt in a new window
-        And I open data/numbers/3.txt in a new tab
-        And I run :tab-close
-        And I run :close
-        And I wait for "removed: tabbed-browser" in the log
-        And I run :undo -w
-        And I run :undo
-        And I wait for "Focus object changed: *" in the log
-        Then the session should look like:
-            """
-            windows:
             - tabs:
-              - active: true
-                history:
-                - url: about:blank
-                - url: http://localhost:*/data/numbers/1.txt
-            - active: true
-              tabs:
               - history:
                 - url: http://localhost:*/data/numbers/2.txt
               - active: true
@@ -1147,16 +1116,16 @@ Feature: Tab management
             """
 
     Scenario: Undo the closing of a window with tabs are windows
-        Given I clear the log
         When I set tabs.last_close to close
         And I set tabs.tabs_are_windows to true
         And I open data/numbers/1.txt
         And I open data/numbers/2.txt in a new tab
-        And I run :tab-close
-        And I wait for "removed: tabbed-browser" in the log
+        And the newest window runs :tab-close
+        And I wait for "removed: main-window" in the log
         And I run :undo -w
-        And I wait for "Focus object changed: *" in the log
-        Then the session should look like:
+        And I wait until data/numbers/2.txt is loaded
+        Then "Asking question *" should not be logged
+        And the session should look like:
             """
             windows:
             - tabs:

@@ -20,13 +20,12 @@ from qutebrowser.qt.gui import QPalette
 from qutebrowser.commands import runners
 from qutebrowser.api import cmdutils
 from qutebrowser.config import config, configfiles, stylesheet
-from qutebrowser.utils import (message, log, usertypes, qtutils, objreg, utils,
-                               jinja, debug)
+from qutebrowser.utils import (message, log, qtutils, objreg, utils, debug)
 from qutebrowser.mainwindow import messageview, prompt, windowsessions
 from qutebrowser.completion import completionwidget, completer
 from qutebrowser.keyinput import modeman
 from qutebrowser.browser import downloadview, hints, downloads
-from qutebrowser.misc import crashsignal, keyhintwidget, objects
+from qutebrowser.misc import crashsignal, keyhintwidget, objects, closedwindows
 from qutebrowser.qt import sip
 
 
@@ -127,6 +126,8 @@ class MainWindow(QWidget):
         state_before_fullscreen: window state before activation of fullscreen.
         should_raise: Whether the window should be raised/activated when maybe_raise()
                       gets called.
+        close_choice: How the next close goes, set by whatever closes the
+                      window without the prompt.
         _downloadview: The DownloadView widget.
         _download_model: The DownloadModel instance.
         _vbox: The main QVBoxLayout.
@@ -294,6 +295,7 @@ class MainWindow(QWidget):
 
         self.state_before_fullscreen = self.windowState()
         self.should_raise: bool = False
+        self.close_choice: closedwindows.CloseChoice | None = None
 
         stylesheet.set_register(self)
 
@@ -668,46 +670,6 @@ class MainWindow(QWidget):
         super().showEvent(e)
         objreg.register('last-visible-main-window', self, update=True)
 
-    def _confirm_quit(self):
-        """Confirm that this window should be closed.
-
-        Return:
-            True if closing is okay, False if a closeEvent should be ignored.
-        """
-        tab_count = self.tabbed_browser.widget.count()
-        window_count = len(objreg.window_registry)
-        download_count = self._download_model.running_downloads()
-        quit_texts = []
-        # Ask if multiple-tabs are open
-        if 'multiple-tabs' in config.val.confirm_quit and tab_count > 1:
-            quit_texts.append("{} tabs are open.".format(tab_count))
-        # Ask if downloads running
-        if ('downloads' in config.val.confirm_quit and download_count > 0 and
-                window_count <= 1):
-            quit_texts.append("{} {} running.".format(
-                download_count,
-                "download is" if download_count == 1 else "downloads are"))
-        # Process all quit messages that user must confirm
-        if quit_texts or 'always' in config.val.confirm_quit:
-            msg = jinja.environment.from_string("""
-                <ul>
-                {% for text in quit_texts %}
-                   <li>{{text}}</li>
-                {% endfor %}
-                </ul>
-            """.strip()).render(quit_texts=quit_texts)
-            confirmed = message.ask('Really quit?', msg,
-                                    mode=usertypes.PromptMode.yesno,
-                                    default=True)
-
-            # Stop asking if the user cancels
-            if not confirmed:
-                log.destroy.debug("Cancelling closing of window {}".format(
-                    self.win_id))
-                return False
-
-        return True
-
     def maybe_raise(self) -> None:
         """Raise the window if self.should_raise is set."""
         if self.should_raise:
@@ -715,13 +677,26 @@ class MainWindow(QWidget):
             self.should_raise = False
 
     def closeEvent(self, e):
-        """Override closeEvent to display a confirmation if needed."""
+        """Ask what to close when this window's session has other windows."""
         if crashsignal.crash_handler.is_crashing:
             e.accept()
             return
 
-        if not self._confirm_quit():
+        preset, self.close_choice = self.close_choice, None
+        choice = closedwindows.close_choice(self, preset)
+        if choice is closedwindows.CloseChoice.cancel:
+            log.destroy.debug("Cancelling closing of window {}".format(
+                self.win_id))
             e.ignore()
+            return
+        if choice is closedwindows.CloseChoice.session:
+            e.ignore()
+            # sessioncommands imports this module.
+            from qutebrowser.misc import sessioncommands
+            # Closing this window from inside its own closeEvent would re-enter
+            # it.
+            QTimer.singleShot(0, functools.partial(
+                sessioncommands.close_session, self.session))
             return
 
         e.accept()

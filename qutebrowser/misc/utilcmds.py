@@ -20,6 +20,7 @@ from qutebrowser.commands import runners
 from qutebrowser.api import cmdutils
 from qutebrowser.misc import (  # pylint: disable=unused-import
     consolewidget, debugcachestats, objects, miscwidgets)
+from qutebrowser.misc import closedwindows
 from qutebrowser.utils.version import pastebin_version
 from qutebrowser.qt import sip
 
@@ -244,6 +245,8 @@ def window_only(current_win_id: int) -> None:
             continue
 
         if win_id != current_win_id:
+            # Asking about every window would defeat the command.
+            window.close_choice = closedwindows.CloseChoice.window
             window.close()
 
 

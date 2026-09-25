@@ -44,7 +44,7 @@ class TestChangeFilter:
         with pytest.raises(configexc.NoOptionError):
             cf.validate()
 
-    @pytest.mark.parametrize('option', ['confirm_quit', 'tabs', 'tabs.show'])
+    @pytest.mark.parametrize('option', ['history_gap_interval', 'tabs', 'tabs.show'])
     def test_validate(self, option):
         cf = config.change_filter(option)
         cf.validate()
@@ -52,7 +52,7 @@ class TestChangeFilter:
 
     @pytest.mark.parametrize('method', [True, False])
     @pytest.mark.parametrize('option, changed, matches', [
-        ('confirm_quit', 'confirm_quit', True),
+        ('history_gap_interval', 'history_gap_interval', True),
         ('tabs', 'tabs.show', True),
         ('tabs.show', 'tabs.show', True),
         ('tabs', None, True),

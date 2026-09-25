@@ -13,7 +13,7 @@ from typing import Any
 from qutebrowser.api import cmdutils
 from qutebrowser.commands import runners
 from qutebrowser.mainwindow import windowsessions
-from qutebrowser.misc import sessionfile, sessioncommands
+from qutebrowser.misc import closedwindows, sessionfile, sessioncommands
 from qutebrowser.qt import sip
 from qutebrowser.utils import message, objreg, utils
 
@@ -73,6 +73,7 @@ def debug_close_other_sessions() -> None:
     for win_id in sorted(objreg.window_registry):
         window = objreg.window_registry[win_id]
         if not sip.isdeleted(window) and window.session is not manager.default:
+            window.close_choice = closedwindows.CloseChoice.plain
             window.close()
 
 

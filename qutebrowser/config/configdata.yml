@@ -18,9 +18,7 @@ aliases:
     commands they map to.
 
 confirm_quit:
-  type: ConfirmQuit
-  default: [never]
-  desc: Require a confirmation before quitting the application.
+  deleted: true
 
 history_gap_interval:
   type: Int

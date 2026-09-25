@@ -8,7 +8,7 @@ from qutebrowser.api import cmdutils
 from qutebrowser.completion.models import miscmodels
 from qutebrowser.config import config
 from qutebrowser.mainwindow import mainwindow, windowsessions
-from qutebrowser.misc import sessionfile
+from qutebrowser.misc import closedwindows, sessionfile
 from qutebrowser.utils import message, objreg
 
 
@@ -67,6 +67,15 @@ def open_startup_sessions(*, private: bool, show: bool) -> None:
         window = mainwindow.MainWindow(session=manager.new_private())
         if show:
             window.show()
+
+
+def close_session(session: windowsessions.Session) -> None:
+    """Save a session and close all of its windows without asking."""
+    windowsessions.manager.begin_close(session)
+    for window_id in sorted(session.windows):
+        window = objreg.window_registry[window_id]
+        window.close_choice = closedwindows.CloseChoice.plain
+        window.close()
 
 
 def _session(name: str) -> windowsessions.Session:
@@ -143,9 +152,7 @@ def session_close(name: str | None = None, *,
         session = _session(name)
     if not session.is_open:
         raise cmdutils.CommandError(f"Session {session.name} is not open")
-    windowsessions.manager.begin_close(session)
-    for window_id in sorted(session.windows):
-        objreg.window_registry[window_id].close()
+    close_session(session)
 
 
 @cmdutils.register()
