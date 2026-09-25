@@ -51,7 +51,7 @@ from qutebrowser.mainwindow import mainwindow, prompt, windowundo, windowsession
 from qutebrowser.misc import (ipc, savemanager, sessioncommands, crashsignal,
                               earlyinit, sql, cmdhistory, backendproblem,
                               objects, quitter, nativeeventfilter, containers,
-                              containercommands, linkrouting)
+                              containercommands, linkrouting, closedwindows)
 from qutebrowser.utils import (log, version, message, utils, urlutils, objreg,
                                resources, usertypes, standarddir,
                                error, qtutils, debug)
@@ -502,6 +502,7 @@ def _init_modules(*, args):
 
     log.init.debug("Initializing window sessions...")
     windowsessions.init()
+    closedwindows.init()
 
     if args.debug:
         # Only the end-to-end test harness uses these commands.
