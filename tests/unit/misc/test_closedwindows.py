@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip('qutebrowser.qt.webenginecore')
 
 from qutebrowser.browser.webengine import profiles
-from qutebrowser.mainwindow import windowsessions
+from qutebrowser.mainwindow import prompt, windowsessions
 from qutebrowser.misc import closedwindows, sessioncommands, sessionfile
 from qutebrowser.utils import message, objreg, qtutils, usertypes
 
@@ -50,9 +50,28 @@ class FakeAsk:
         return self.answer
 
 
+class FakePromptQueue:
+
+    """Stands in for prompt.prompt_queue, only set up for a real window."""
+
+    def __init__(self):
+        self.aborted_win_ids = []
+
+    def abort_window(self, win_id):
+        self.aborted_win_ids.append(win_id)
+
+
 @pytest.fixture(autouse=True)
 def fake_timers(monkeypatch, stubs):
     monkeypatch.setattr(windowsessions.usertypes, 'Timer', stubs.FakeTimer)
+
+
+@pytest.fixture(autouse=True)
+def fake_prompt_queue(monkeypatch):
+    """close_session() cancels a closing window's own prompt via this."""
+    queue = FakePromptQueue()
+    monkeypatch.setattr(prompt, 'prompt_queue', queue)
+    return queue
 
 
 @pytest.fixture
@@ -161,10 +180,14 @@ def test_window_close_no_prompt(manager, windows):
     assert window.close_choice is CloseChoice.window
 
 
-def test_close_session_closes_without_asking(manager, windows):
+def test_close_session_closes_without_asking(manager, windows,
+                                             fake_prompt_queue):
     work = manager.new_session('work')
     first, second = two_windows(manager, windows, work)
     sessioncommands.close_session(work)
     assert first.closed and second.closed
     assert first.close_choice is CloseChoice.plain
     assert second.close_choice is CloseChoice.plain
+    # Cancels each window's own close prompt (if any), since it becomes
+    # moot once the whole session is closing regardless of its answer.
+    assert fake_prompt_queue.aborted_win_ids == [1, 2]

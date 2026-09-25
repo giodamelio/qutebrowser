@@ -684,6 +684,12 @@ class MainWindow(QWidget):
 
         preset, self.close_choice = self.close_choice, None
         choice = closedwindows.close_choice(self, preset)
+        override, self.close_choice = self.close_choice, None
+        if override is not None:
+            # Something else decided this window's fate (e.g. closing its
+            # whole session) while its own prompt was still showing; that
+            # decision wins over whatever the now-moot prompt says.
+            choice = override
         if choice is closedwindows.CloseChoice.cancel:
             log.destroy.debug("Cancelling closing of window {}".format(
                 self.win_id))
@@ -693,8 +699,9 @@ class MainWindow(QWidget):
             e.ignore()
             # sessioncommands imports this module.
             from qutebrowser.misc import sessioncommands
-            # Closing this window from inside its own closeEvent would re-enter
-            # it.
+            # A close() call made while this closeEvent is still running is
+            # swallowed by Qt rather than re-entering it, so the
+            # whole-session close is deferred to run after this returns.
             QTimer.singleShot(0, functools.partial(
                 sessioncommands.close_session, self.session))
             return

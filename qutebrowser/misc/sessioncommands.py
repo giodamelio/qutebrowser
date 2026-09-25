@@ -7,7 +7,7 @@
 from qutebrowser.api import cmdutils
 from qutebrowser.completion.models import miscmodels
 from qutebrowser.config import config
-from qutebrowser.mainwindow import mainwindow, windowsessions
+from qutebrowser.mainwindow import mainwindow, prompt, windowsessions
 from qutebrowser.misc import closedwindows, sessionfile
 from qutebrowser.utils import message, objreg
 
@@ -75,6 +75,11 @@ def close_session(session: windowsessions.Session) -> None:
     for window_id in sorted(session.windows):
         window = objreg.window_registry[window_id]
         window.close_choice = closedwindows.CloseChoice.plain
+        # A window mid-prompt for its own close can't be closed again -
+        # Qt swallows that reentrant close() call. Cancel its prompt so its
+        # closeEvent unblocks and picks up close_choice above instead of
+        # the now-moot prompt answer.
+        prompt.prompt_queue.abort_window(window_id)
         window.close()
 
 
