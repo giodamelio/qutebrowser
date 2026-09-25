@@ -126,8 +126,9 @@ def element(html, tag, element_id):
 
 def write_session(base_path, name, *, container='default', windows=(),
                   closed_windows=()):
-    base_path.mkdir(parents=True, exist_ok=True)
-    sessionfile.write(base_path / f'{name}.yml', sessionfile.SessionData(
+    directory = base_path / name
+    directory.mkdir(parents=True, exist_ok=True)
+    sessionfile.write(directory / 'session.yml', sessionfile.SessionData(
         container=container, windows=list(windows),
         closed_windows=list(closed_windows)))
 
@@ -243,7 +244,7 @@ def test_sessions_page_container_and_order(manager, container_registry):
 
 def test_sessions_page_last_saved(manager, base_path):
     write_session(base_path, 'old')
-    os.utime(base_path / 'old.yml', (1790000000, 1790000000))
+    os.utime(base_path / 'old' / 'session.yml', (1790000000, 1790000000))
     manager.load_all()
     fresh = manager.new_session('fresh')
     fresh.last_saved = datetime.datetime(2026, 9, 25, 10, 30, 0)
@@ -278,14 +279,16 @@ def test_sessions_page_private_only_while_open(manager, windows):
 
 
 def test_sessions_page_unreadable(manager, base_path, message_mock, caplog):
-    base_path.mkdir(parents=True, exist_ok=True)
-    (base_path / 'broken.yml').write_text('windows: [\n', encoding='utf-8')
+    (base_path / 'broken').mkdir(parents=True)
+    (base_path / 'broken' / 'session.yml').write_text('windows: [\n',
+                                                      encoding='utf-8')
     with caplog.at_level(logging.ERROR):
         manager.load_all()
 
     html = page(sessionpages.qute_sessions)
 
-    assert f'<li class="mono">{base_path / "broken.yml"}</li>' in html
+    assert f'<li class="mono">{base_path / "broken"}</li>' in html
+    assert "These sessions couldn't be read." in html
     assert 'id="session-broken"' not in html
 
 

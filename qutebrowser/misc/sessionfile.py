@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The on-disk format of one session, data/sessions/<name>.yml.
+"""The on-disk format of one session, data/sessions/<name>/session.yml.
 
 The tab serialization is upstream's, moved here from misc/sessions.py.
 """

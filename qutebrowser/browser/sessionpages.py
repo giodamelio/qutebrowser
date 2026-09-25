@@ -6,7 +6,6 @@
 
 import dataclasses
 import datetime
-import pathlib
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -200,15 +199,6 @@ def _closed_windows(session: windowsessions.Session) -> list[ClosedWindowRow]:
     return rows
 
 
-def _unreadable_paths(
-        manager: windowsessions.SessionManager) -> list[pathlib.Path]:
-    # The manager has no public query for these. E and F change
-    # windowsessions.py in parallel with G, so adding one waits for the merge.
-    # pylint: disable=protected-access
-    return sorted(manager._base_path / f'{name}.yml'
-                  for name in manager._unreadable)
-
-
 @qutescheme.add_handler('sessions')
 def qute_sessions(_url: QUrl) -> tuple[str, str]:
     """Handler for qute://sessions. Show every session."""
@@ -230,7 +220,7 @@ def qute_sessions(_url: QUrl) -> tuple[str, str]:
                for session in manager.private_sessions()]
     return 'text/html', jinja.render(
         'sessions.html', title='Sessions', saved=saved, private=private,
-        unreadable=_unreadable_paths(manager))
+        unreadable=manager.unreadable_paths())
 
 
 def open_page(url: str, win_id: int, *, tab: bool, bg: bool,

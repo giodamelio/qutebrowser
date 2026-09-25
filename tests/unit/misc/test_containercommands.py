@@ -143,7 +143,7 @@ def test_container_rename(manager, container_registry, base_path):
     assert not data.exists()
     new_data, _new_cache = container_registry.storage_paths('new')
     assert (new_data / 'Cookies').read_text(encoding='utf-8') == 'x'
-    assert sessionfile.read(base_path / 'a.yml').container == 'new'
+    assert sessionfile.read(base_path / 'a' / 'session.yml').container == 'new'
 
 
 @pytest.mark.parametrize('old, new, match', [
@@ -239,7 +239,7 @@ def test_container_rename_rollback_session_write_failure(
         raise containers.Error('disk full')
 
     def write(path, session_data):
-        if rolling_back and path.name == 'a.yml':
+        if rolling_back and path.parent.name == 'a':
             raise sessionfile.SessionFileError('read-only')
         real_write(path, session_data)
 

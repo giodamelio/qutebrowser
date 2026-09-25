@@ -262,7 +262,7 @@ def test_recorded_window_is_saved_with_its_session(manager, windows,
     closing, _other = two_windows(manager, windows, work)
     closedwindows.record(closing)
     manager.window_closing(closing)
-    data = sessionfile.read(tmp_path / 'sessions' / 'work.yml')
+    data = sessionfile.read(tmp_path / 'sessions' / 'work' / 'session.yml')
     assert data.windows == [{'win': 2}]
     assert [entry['window'] for entry in data.closed_windows] == [{'win': 1}]
     assert isinstance(data.closed_windows[0]['closed_at'], str)
