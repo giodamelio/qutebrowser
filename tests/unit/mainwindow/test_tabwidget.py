@@ -11,7 +11,7 @@ import pytest
 from unittest.mock import Mock
 
 from qutebrowser.qt.gui import QIcon, QPixmap
-from qutebrowser.mainwindow import tabwidget
+from qutebrowser.mainwindow import tabwidget, windowsessions
 from qutebrowser.utils import usertypes
 
 
@@ -41,6 +41,20 @@ class TestTabWidget:
 
         with qtbot.wait_exposed(widget):
             widget.show()
+
+    @pytest.mark.parametrize('session, expected', [
+        (windowsessions.Session('work', private=False, container='shop'),
+         ('work', 'shop', '')),
+        (windowsessions.Session('private-1', private=True),
+         ('private-1', '', ' [Private Mode] ')),
+    ], ids=['container', 'private'])
+    def test_session_fields(self, widget, fake_web_tab, session, expected):
+        tab = fake_web_tab()
+        tab.session = session
+        widget.addTab(tab, 'foobar')
+        fields = widget.get_tab_fields(0)
+        assert (fields['session'], fields['container'],
+                fields['private']) == expected
 
     # Sizing tests
 

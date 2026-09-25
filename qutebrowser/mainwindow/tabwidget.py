@@ -176,6 +176,8 @@ class TabWidget(QTabWidget):
         fields['perc_raw'] = tab.progress()
         fields['backend'] = objects.backend.name
         fields['private'] = ' [Private Mode] ' if tab.is_private else ''
+        fields['session'] = tab.session.name
+        fields['container'] = '' if tab.session.private else tab.session.container
         try:
             if tab.audio.is_muted():
                 fields['audio'] = TabWidget.MUTE_STRING
