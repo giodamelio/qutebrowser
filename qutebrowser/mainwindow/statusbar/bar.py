@@ -258,6 +258,11 @@ class StatusBar(QWidget):
                 # Do not call .show() for these widgets. They are not always shown, and
                 # dynamically show/hide themselves in their on_tab_changed() methods.
                 continue
+            elif segment == 'container':
+                widget.enabled = True
+                # It hides itself for the default container.
+                widget.set_session(self._session())
+                continue
             elif segment.startswith('text:'):
                 widget.setText(segment.split(':', maxsplit=1)[1])
             elif segment.startswith('clock:') or segment == 'clock':
@@ -278,7 +283,7 @@ class StatusBar(QWidget):
                        self.session_name, self.container_name,
                        *self._text_widgets]:
             assert isinstance(widget, QWidget)
-            if widget in [self.prog, self.backforward]:
+            if widget in [self.prog, self.backforward, self.container_name]:
                 widget.enabled = False
             widget.hide()
             self._hbox.removeWidget(widget)

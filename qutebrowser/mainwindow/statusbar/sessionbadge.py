@@ -41,14 +41,31 @@ class SessionName(_SessionBadge):
     """The name of the window's session."""
 
     def _text(self, session: windowsessions.Session) -> str:
-        return session.name
+        return f'session: {session.name}'
 
 
 class ContainerName(_SessionBadge):
 
-    """The window's container, or (private) for a private session."""
+    """The window's container, or (private) for a private session.
+
+    Hidden for `default`: most windows use it, and naming it on every window
+    only adds noise.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Set by the status bar while `container` is in statusbar.widgets.
+        self.enabled = False
 
     def _text(self, session: windowsessions.Session) -> str:
         # Parentheses can't be part of a container name, so this can't be
         # mistaken for a container called "private".
-        return '(private)' if session.private else session.container
+        name = '(private)' if session.private else session.container
+        return f'container: {name}'
+
+    def set_session(self, session: windowsessions.Session) -> None:
+        super().set_session(session)
+        # Private sessions keep the default container, so check them first.
+        shown = (session.private or
+                 session.container != windowsessions.DEFAULT_CONTAINER)
+        self.setVisible(self.enabled and shown)
