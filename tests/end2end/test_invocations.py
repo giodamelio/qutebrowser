@@ -1341,3 +1341,61 @@ def test_undo_window_after_restart(request, quteproc_new, short_tmpdir):
     """)
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()
+
+
+def _tab_by_id(windows, tab_id):
+    """Get the window id and dumped data of the tab with a persistent id."""
+    for window in windows:
+        for tab in window['tabs']:
+            if tab['id'] == tab_id:
+                return window['win_id'], tab
+    raise AssertionError(f"No tab with id {tab_id} in {windows}")
+
+
+def _urls(tab):
+    return [item['url'] for item in tab['history']]
+
+
+def test_tab_ids_follow_moves_and_clones(request, quteproc_new):
+    """Given and taken tabs keep their id and history; clones get a new id."""
+    args = _base_args(request.config) + ['--temp-basedir']
+    quteproc_new.start(args)
+    quteproc_new.open_path('data/numbers/1.txt')
+    quteproc_new.open_path('data/numbers/2.txt')
+    [window] = quteproc_new.get_session()['windows']
+    [original] = [tab for tab in window['tabs'] if tab.get('active')]
+    assert len(_urls(original)) >= 2
+
+    quteproc_new.send_cmd(':tab-clone')
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    [window] = quteproc_new.get_session()['windows']
+    [clone] = [tab for tab in window['tabs'] if tab.get('active')]
+    assert clone['id'] != original['id']
+
+    quteproc_new.send_cmd(':open -w about:blank')
+    _wait_until(lambda: len(quteproc_new.get_session()['windows']) == 2,
+                "The second window never opened")
+    source, target = (win['win_id']
+                      for win in quteproc_new.get_session()['windows'])
+
+    quteproc_new.send_cmd(f':debug-run-in-window {source} tab-give {target}')
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    windows = quteproc_new.get_session()['windows']
+    win_id, given = _tab_by_id(windows, clone['id'])
+    assert win_id == target
+    assert _urls(given) == _urls(original)
+
+    source_tabs = next(win['tabs'] for win in windows
+                       if win['win_id'] == source)
+    index = next(i for i, tab in enumerate(source_tabs, start=1)
+                 if tab['id'] == original['id'])
+    quteproc_new.send_cmd(
+        f':debug-run-in-window {target} tab-take {source}/{index}')
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    win_id, taken = _tab_by_id(quteproc_new.get_session()['windows'],
+                               original['id'])
+    assert win_id == target
+    assert _urls(taken) == _urls(original)
+
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()

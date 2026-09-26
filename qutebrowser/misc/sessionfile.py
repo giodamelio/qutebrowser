@@ -16,11 +16,11 @@ from typing import Any, TypeAlias
 from collections.abc import MutableMapping, MutableSequence
 
 import yaml
-from qutebrowser.qt.core import Qt, QUrl, QPoint, QTimer, QDateTime
+from qutebrowser.qt.core import Qt, QUrl, QPoint, QTimer, QDateTime, QByteArray
 
 from qutebrowser.config import config
-from qutebrowser.misc import objects
-from qutebrowser.utils import log, qtutils, utils
+from qutebrowser.misc import historystore, objects
+from qutebrowser.utils import log, objreg, qtutils, utils
 
 
 JsonType: TypeAlias = MutableMapping[str, Any]
@@ -164,7 +164,7 @@ def _serialize_tab_item(tab, idx, item):
     return data
 
 
-def _serialize_tab(tab, active):
+def serialize_tab(tab, active):
     """Serialize a single tab with its history."""
     data: JsonType = {'history': []}
     if active:
@@ -187,6 +187,7 @@ def _serialize_tab(tab, active):
                 data['history'][-1]['active'] = True
         else:
             data['history'].append(item_data)
+    data['id'] = tab.data.persistent_id
     return data
 
 
@@ -199,10 +200,40 @@ def serialize_window(window) -> JsonType:
         data['active'] = True
     data['geometry'] = bytes(window.saveGeometry())
     data['tabs'] = [
-        _serialize_tab(tab, i == tabbed_browser.widget.currentIndex())
+        serialize_tab(tab, i == tabbed_browser.widget.currentIndex())
         for i, tab in enumerate(tabbed_browser.widgets())
     ]
     return data
+
+
+def tab_history(tab) -> bytes:
+    """Get a tab's history in QtWebEngine's own format."""
+    return bytes(tab.history.private_api.serialize())
+
+
+def deserialize_tab(tab, history: bytes) -> None:
+    """Replace a tab's history with saved bytes, loading its current page."""
+    tab.history.private_api.deserialize(QByteArray(history))
+
+
+def _claim_id(value: Any, used_ids: set[str]) -> str | None:
+    """Get a saved tab id, unless it is invalid or another tab has it.
+
+    Two tabs with one id would share, and overwrite, one history file.
+    """
+    if not historystore.is_valid_id(value) or value in used_ids:
+        return None
+    used_ids.add(value)
+    return value
+
+
+def _live_ids(session) -> set[str]:
+    """Get the ids of the tabs in a session's open windows."""
+    ids = set()
+    for win_id in session.windows:
+        tabbed_browser = objreg.window_registry[win_id].tabbed_browser
+        ids.update(tab.data.persistent_id for tab in tabbed_browser.widgets())
+    return ids
 
 
 def _restore_tab(new_tab, data):  # noqa: C901
@@ -293,12 +324,16 @@ def restore_window(data: JsonType, session, *, show: bool = True):
     if geometry is not None and not isinstance(geometry, bytes):
         raise SessionFileError(
             f"Session {session.name} has a window with invalid geometry")
+    used_ids = _live_ids(session)
     window = mainwindow.MainWindow(geometry=geometry, session=session)
     tabbed_browser = window.tabbed_browser
     tab_to_focus = None
     try:
         for i, tab in enumerate(data['tabs']):
             new_tab = tabbed_browser.tabopen(background=False)
+            tab_id = _claim_id(tab.get('id'), used_ids)
+            if tab_id is not None:
+                new_tab.data.persistent_id = tab_id
             _restore_tab(new_tab, tab)
             if tab.get('active', False):
                 tab_to_focus = i

@@ -24,7 +24,8 @@ from qutebrowser.keyinput import modeman, keyutils
 from qutebrowser.utils import (message, usertypes, log, qtutils, urlutils,
                                objreg, utils, standarddir, debug)
 from qutebrowser.utils.usertypes import KeyMode
-from qutebrowser.misc import editor, guiprocess, objects, closedwindows
+from qutebrowser.misc import (editor, guiprocess, objects, closedwindows,
+                              sessionfile)
 from qutebrowser.completion.models import urlmodel, miscmodels
 from qutebrowser.mainwindow import mainwindow, windowsessions
 
@@ -480,14 +481,21 @@ class CommandDispatcher:
         except windowsessions.ProfileMismatchError as e:
             raise cmdutils.CommandError(str(e))
 
-        self._open(tab.url(), tab=True)
+        try:
+            history = sessionfile.tab_history(tab)
+        except browsertab.WebTabError as e:
+            raise cmdutils.CommandError(e)
+        newtab = self._tabbed_browser.tabopen(background=False, related=False)
+        sessionfile.deserialize_tab(newtab, history)
         if not keep:
+            # The same tab, moved, so its saved history file stays its own.
+            newtab.data.persistent_id = tab.data.persistent_id
             tabbed_browser.close_tab(tab, add_undo=False, transfer=True)
 
     @cmdutils.register(instance='command-dispatcher', scope='window')
     @cmdutils.argument('win_id', completion=miscmodels.window)
     @cmdutils.argument('count', value=cmdutils.Value.count)
-    def tab_give(self, win_id: int | None = None, keep: bool = False,
+    def tab_give(self, win_id: int | None = None, keep: bool = False,  # noqa: C901
                  count: int | None = None, private: bool = False) -> None:
         """Give the current tab to a new or existing window if win_id given.
 
@@ -532,12 +540,19 @@ class CommandDispatcher:
                 raise cmdutils.CommandError(
                     "The window with id {} is not private".format(win_id))
 
-        tabbed_browser.tabopen(self._current_url())
+        curtab = self._current_widget()
+        try:
+            history = sessionfile.tab_history(curtab)
+        except browsertab.WebTabError as e:
+            raise cmdutils.CommandError(e)
+        newtab = tabbed_browser.tabopen()
         tabbed_browser.window().show()
+        sessionfile.deserialize_tab(newtab, history)
 
         if not keep:
-            self._tabbed_browser.close_tab(self._current_widget(),
-                                           add_undo=False,
+            # The same tab, moved, so its saved history file stays its own.
+            newtab.data.persistent_id = curtab.data.persistent_id
+            self._tabbed_browser.close_tab(curtab, add_undo=False,
                                            transfer=True)
 
     def _back_forward(
