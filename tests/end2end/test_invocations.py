@@ -25,7 +25,8 @@ import pytest
 from qutebrowser.qt.core import QProcess, QPoint
 
 from helpers import testutils
-from end2end.fixtures import quteprocess
+from end2end.fixtures import notificationserver, quteprocess
+from qutebrowser.browser.webengine import notification
 from qutebrowser.utils import qtutils, utils, version
 from qutebrowser.misc import checkpyver, historystore, ipc
 
@@ -1640,3 +1641,36 @@ def test_closing_with_running_downloads_asks(request, quteproc_new, server,
     quteproc_new.wait_for(message=_DOWNLOADS_QUESTION)
     quteproc_new.send_cmd(':prompt-accept yes')
     quteproc_new.wait_for_quit()
+
+
+def test_quitting_with_the_window_picker_open(request, quteproc_new):
+    """Quitting discards links waiting for the picker with a notification.
+
+    There's no message in the browser (§23.2); an error message would also
+    fail the test at teardown.
+    """
+    args = _base_args(request.config) + [
+        '--temp-basedir', '-s', 'new_instance_open_target', 'tab',
+        '--debug-flag', 'test-notification-service']
+    quteproc_new.start(args)
+    server = notificationserver.TestNotificationServer(
+        f"{notification.DBusNotificationAdapter.TEST_SERVICE}"
+        f"{quteproc_new.proc.processId()}")
+    if not server.register():
+        pytest.skip("No DBus server available")
+    request.addfinalizer(server.unregister)
+    quteproc_new.send_cmd(':container-new quit-picker')
+    quteproc_new.send_cmd(':session-new quit-picker --container quit-picker')
+    quteproc_new.open_path('data/search.html', as_url=True, wait=False)
+    quteproc_new.wait_for(message='Asking question *')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for(category='misc',
+                          message='Links not opened: */data/search.html')
+    quteproc_new.wait_for_quit()
+    [msg] = server.messages.values()
+    assert msg.title == 'Links not opened'
+    assert msg.body.endswith('/data/search.html')
+    quteproc_new.ensure_not_logged(category='message',
+                                   message='Links not opened: *')
+    quteproc_new.ensure_not_logged(
+        message='Window * closed before it could ask where to open the links')
