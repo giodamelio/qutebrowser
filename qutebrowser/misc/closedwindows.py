@@ -55,6 +55,9 @@ class NothingToRestoreError(Error):
 def close_choice(window: Any, preset: CloseChoice | None = None) -> CloseChoice:
     """Decide how a window closes, asking in that window when it has to.
 
+    A "close this window" answer that leaves this the browser's last window
+    also asks about running downloads, since closing it now quits.
+
     Args:
         window: The closing window.
         preset: A choice made before the close started, e.g. by a command.
@@ -72,7 +75,11 @@ def close_choice(window: Any, preset: CloseChoice | None = None) -> CloseChoice:
         # _ask() blocks; another window of this session may have closed in
         # the meantime, so the table is re-run to catch a session that's
         # now down to just this one.
-        return close_choice(window, preset=answer)
+        answer = close_choice(window, preset=answer)
+        # Before the prompt this session had another window, so this can
+        # only just have become the browser's last one.
+        if not confirm_close(window.win_id, {window.win_id}):
+            return CloseChoice.cancel
     return answer
 
 
