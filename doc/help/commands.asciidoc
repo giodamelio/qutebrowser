@@ -1171,6 +1171,8 @@ Reload quickmarks from disk.
 === quit
 Quit qutebrowser, keeping every open session for the next start.
 
+Asks first while downloads are running.
+
 [[reload]]
 === reload
 Syntax: +:reload [*--force*]+
