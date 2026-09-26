@@ -17,7 +17,15 @@ from qutebrowser.qt.core import QUrl
 
 from qutebrowser.browser.webengine import notification
 from qutebrowser.mainwindow import mainwindow, windowsessions
-from qutebrowser.utils import message, objreg, usertypes
+from qutebrowser.misc import quitter
+from qutebrowser.utils import log, message, objreg, usertypes
+
+
+# Pickers not answered, cancelled or aborted yet, with their links.
+_pending: dict[usertypes.Question, list[QUrl]] = {}
+# Links dropped once quitting started, reported together as it ends.
+_dropped_on_quit: list[QUrl] = []
+_hooked_quitter: Any = None
 
 
 def distinct_profile_keys() -> set[str]:
@@ -55,15 +63,18 @@ def ask_and_open(urls: list[QUrl], *, target: str) -> None:
         'Open in which window?', usertypes.PromptMode.select,
         functools.partial(_open_in_chosen, urls, target),
         text=listing, win_id=window.win_id, options=window_options())
-    discarded = False
+    _pending[question] = urls
+    _hook_quit()
 
     def discard_once() -> None:
         # cancelled and aborted can both reach this handler for the same
-        # question, e.g. cancelling one whose window is also closing.
-        nonlocal discarded
-        if discarded:
+        # question, e.g. cancelling one whose window is also closing, and
+        # quitting may already have taken the links.
+        if _pending.pop(question, None) is None:
             return
-        discarded = True
+        if windowsessions.manager.shutting_down:
+            _dropped_on_quit.extend(urls)
+            return
         if question.is_aborted:
             message.error(f"Window {question.win_id} closed before it "
                           "could ask where to open the links")
@@ -71,9 +82,39 @@ def ask_and_open(urls: list[QUrl], *, target: str) -> None:
 
     question.cancelled.connect(discard_once)
     question.aborted.connect(discard_once)
+    question.completed.connect(lambda: _pending.pop(question, None))
+
+
+def _hook_quit() -> None:
+    global _hooked_quitter
+    if _hooked_quitter is quitter.instance:
+        return
+    # Quitting never aborts a non-blocking question before the application
+    # exits, so an open or queued picker would lose its links silently.
+    quitter.instance.shutting_down.connect(_discard_on_quit)
+    _hooked_quitter = quitter.instance
+
+
+def _discard_on_quit() -> None:
+    """Report every link no picker could open, in one notification."""
+    for urls in _pending.values():
+        _dropped_on_quit.extend(urls)
+    _pending.clear()
+    if not _dropped_on_quit:
+        return
+    shown = [url.toDisplayString() for url in _dropped_on_quit]
+    _dropped_on_quit.clear()
+    # No window is left to show a message in, and with the qt or messages
+    # presenter no notification goes out, so the log is the only trace.
+    log.misc.info(f"Links not opened: {', '.join(shown)}")
+    notification.notify('Links not opened', '\n'.join(shown))
 
 
 def _open_in_chosen(urls: list[QUrl], target: str, key: str) -> None:
+    if windowsessions.manager.shutting_down:
+        # The sessions are saved already, so tabs opened now would be lost.
+        _dropped_on_quit.extend(urls)
+        return
     window = objreg.window_registry.get(int(key))
     if window is None or window.tabbed_browser.is_shutting_down:
         message.error(f"Window {key} closed before the links could open")

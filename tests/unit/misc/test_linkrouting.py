@@ -8,11 +8,11 @@ import pytest
 
 pytest.importorskip('qutebrowser.qt.webenginecore')
 
-from qutebrowser.qt.core import QUrl
+from qutebrowser.qt.core import QObject, QUrl, pyqtSignal
 
 from qutebrowser.browser.webengine import notification, profiles
 from qutebrowser.mainwindow import mainwindow, windowsessions
-from qutebrowser.misc import linkrouting
+from qutebrowser.misc import linkrouting, quitter
 from qutebrowser.utils import objreg, qtutils, usertypes
 
 
@@ -74,6 +74,20 @@ class FakeWindow:
 
     def maybe_raise(self):
         self.raised = self.should_raise
+
+
+class FakeQuitter(QObject):
+
+    shutting_down = pyqtSignal()
+
+
+@pytest.fixture(autouse=True)
+def fake_quitter(monkeypatch):
+    fake = FakeQuitter()
+    monkeypatch.setattr(quitter, 'instance', fake)
+    monkeypatch.setattr(linkrouting, '_pending', {})
+    monkeypatch.setattr(linkrouting, '_dropped_on_quit', [])
+    return fake
 
 
 @pytest.fixture(autouse=True)
@@ -276,6 +290,85 @@ def test_abort_discards_with_error_and_notification(two_profiles,
     assert notified == [('Links not opened',
                          'https://example.org/\nhttps://example.com/')]
     assert not any(window.tabbed_browser.opened for window in two_profiles)
+
+
+def quit_browser(manager, fake_quitter):
+    manager.shutdown()
+    fake_quitter.shutting_down.emit()
+
+
+def test_quitting_discards_with_one_notification(two_profiles, manager,
+                                                message_mock, notified,
+                                                fake_quitter, caplog):
+    linkrouting.ask_and_open([URL, OTHER], target='tab')
+    linkrouting.ask_and_open([URL], target='tab')
+    with caplog.at_level(logging.INFO, 'misc'):
+        quit_browser(manager, fake_quitter)
+    assert message_mock.messages == []
+    assert notified == [(
+        'Links not opened',
+        'https://example.org/\nhttps://example.com/\nhttps://example.org/')]
+    assert not any(window.tabbed_browser.opened for window in two_profiles)
+    assert [(record.name, record.levelno, record.getMessage())
+            for record in caplog.records
+            if record.getMessage().startswith('Links not opened')] == [(
+                'misc', logging.INFO,
+                'Links not opened: https://example.org/, '
+                'https://example.com/, https://example.org/')]
+
+
+@pytest.mark.parametrize('ending', ['answer', 'cancel', 'abort'])
+def test_ending_the_picker_while_quitting_joins_the_notification(
+        two_profiles, manager, message_mock, notified, fake_quitter, ending):
+    """A picker can still end between shutdown() and the quit signal."""
+    linkrouting.ask_and_open([URL], target='tab')
+    linkrouting.ask_and_open([OTHER], target='tab')
+    first, _second = message_mock.questions
+    manager.shutdown()
+    if ending == 'answer':
+        first.answer = '2'
+        first.done()
+    else:
+        getattr(first, ending)()
+    assert notified == []
+    fake_quitter.shutting_down.emit()
+    assert message_mock.messages == []
+    assert notified == [('Links not opened',
+                         'https://example.org/\nhttps://example.com/')]
+    assert not any(window.tabbed_browser.opened for window in two_profiles)
+
+
+@pytest.mark.parametrize('ending', ['abort', 'cancel'])
+def test_ending_the_picker_after_quitting_discards_only_once(
+        two_profiles, manager, message_mock, notified, fake_quitter, ending):
+    linkrouting.ask_and_open([URL], target='tab')
+    question = message_mock.get_question()
+    quit_browser(manager, fake_quitter)
+    getattr(question, ending)()
+    assert message_mock.messages == []
+    assert notified == [('Links not opened', 'https://example.org/')]
+
+
+def test_quitting_after_an_answer_discards_nothing(two_profiles, manager,
+                                                   message_mock, notified,
+                                                   fake_quitter):
+    _home, play = two_profiles
+    linkrouting.ask_and_open([URL], target='tab')
+    question = message_mock.get_question()
+    question.answer = '2'
+    question.done()
+    quit_browser(manager, fake_quitter)
+    assert notified == []
+    assert play.tabbed_browser.opened == [(URL, False)]
+
+
+def test_quitting_after_a_cancel_discards_only_once(two_profiles, manager,
+                                                    message_mock, notified,
+                                                    fake_quitter):
+    linkrouting.ask_and_open([URL], target='tab')
+    message_mock.get_question().cancel()
+    quit_browser(manager, fake_quitter)
+    assert notified == [('Links not opened', 'https://example.org/')]
 
 
 def test_abort_after_cancel_discards_only_once(two_profiles, message_mock,
