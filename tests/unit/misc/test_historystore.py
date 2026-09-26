@@ -124,6 +124,14 @@ def test_write_changed_failure(tmp_path):
     assert digests == {}
 
 
+def test_write_changed_rewrites_a_deleted_file(tmp_path):
+    digests = {}
+    historystore.write_changed(tmp_path, {ID_A: b'a'}, digests)
+    (tmp_path / f'{ID_A}.bin').unlink()
+    historystore.write_changed(tmp_path, {ID_A: b'a'}, digests)
+    assert historystore.read(tmp_path, ID_A) == b'a'
+
+
 def test_remove_unreferenced(tmp_path):
     digests = {}
     historystore.write_changed(tmp_path, {ID_A: b'a', ID_B: b'b'}, digests)
