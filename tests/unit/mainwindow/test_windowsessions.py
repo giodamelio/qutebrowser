@@ -1193,6 +1193,33 @@ def test_move_aside_forgets_history_digests(history_manager, base_path,
     assert (base_path / 'work.broken' / 'session.yml').exists()
 
 
+def test_move_aside_keeps_closed_windows_history(history_manager, windows,
+                                                 base_path, message_mock,
+                                                 caplog):
+    id_c, id_missing = 'c' * 32, 'd' * 32
+    work = history_manager.new_session('work')
+    work.closed_windows = [{
+        'closed_at': '2026-09-25T10:00:00.000+00:00',
+        'window': {'tabs': [{'id': ID_B, 'history': []},
+                            {'id': id_missing, 'history': []}],
+                   'closed_tabs': [[{'id': id_c}]]},
+    }]
+    historystore.write_changed(history_manager.history_dir(work),
+                               {ID_B: b'closed window', id_c: b'closed tab'},
+                               {})
+    history_window(history_manager, windows, work, 1, {ID_A: b'open'})
+
+    with caplog.at_level(logging.ERROR):
+        history_manager.move_aside(work)
+    history_manager.save(work)
+
+    assert history_files(base_path, 'work') == sorted(
+        f'{tab_id}.bin' for tab_id in [ID_A, ID_B, id_c])
+    history_dir = history_manager.history_dir(work)
+    assert historystore.read(history_dir, ID_B) == b'closed window'
+    assert historystore.read(history_dir, id_c) == b'closed tab'
+
+
 def test_open_session_moves_aside_after_every_window(
         history_manager, base_path, monkeypatch, message_mock, caplog):
     """A window QtWebEngine refuses doesn't cost later windows their history.
