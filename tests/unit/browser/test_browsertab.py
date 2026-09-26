@@ -108,6 +108,9 @@ def test_tab_take_lazy_tab_qt_refuses(config_stub, monkeypatch, message_mock,
                         lambda index: (other, tab))
     monkeypatch.setattr(commands.windowsessions, 'check_same_profile',
                         lambda a, b: None)
+    monkeypatch.setattr(
+        commands.windowsessions, 'manager',
+        types.SimpleNamespace(carry_history=lambda src, dst, ids: None))
 
     with caplog.at_level(logging.ERROR):
         dispatcher.tab_take('1/1', keep=keep)
@@ -116,3 +119,66 @@ def test_tab_take_lazy_tab_qt_refuses(config_stub, monkeypatch, message_mock,
     assert tab.data.lazy_history.data == saved
     assert 'read past end' in message_mock.getmsg(
         usertypes.MessageLevel.error).text
+
+
+@pytest.mark.parametrize('keep', [False, True])
+def test_tab_take_carries_the_history_file(config_stub, monkeypatch, keep):
+    source, target = object(), object()
+    tab = types.SimpleNamespace(data=browsertab.TabData())
+    newtab = types.SimpleNamespace(data=browsertab.TabData())
+    events = []
+    dispatcher = commands.CommandDispatcher(0, types.SimpleNamespace(
+        session=target, tabopen=lambda background, related: newtab))
+    other = types.SimpleNamespace(
+        session=source,
+        close_tab=lambda closed, **kwargs: events.append('close'))
+    monkeypatch.setattr(dispatcher, '_resolve_tab_index',
+                        lambda index: (other, tab))
+    monkeypatch.setattr(commands.windowsessions, 'check_same_profile',
+                        lambda a, b: None)
+    monkeypatch.setattr(commands.sessionfile, 'tab_history',
+                        lambda moved: b'bytes')
+    monkeypatch.setattr(commands.sessionfile, 'take_tab_history',
+                        lambda new, old, history: None)
+    monkeypatch.setattr(
+        commands.windowsessions, 'manager', types.SimpleNamespace(
+            carry_history=lambda src, dst, ids: events.append(
+                ('carry', src, dst, list(ids)))))
+
+    dispatcher.tab_take('1/1', keep=keep)
+
+    assert events == ([] if keep else [
+        ('carry', source, target, [tab.data.persistent_id]), 'close'])
+
+
+@pytest.mark.parametrize('keep', [False, True])
+def test_tab_give_carries_the_history_file(config_stub, monkeypatch, keep):
+    source, target_session = object(), object()
+    curtab = types.SimpleNamespace(data=browsertab.TabData())
+    newtab = types.SimpleNamespace(data=browsertab.TabData())
+    events = []
+    dispatcher = commands.CommandDispatcher(0, types.SimpleNamespace(
+        session=source,
+        close_tab=lambda closed, **kwargs: events.append('close')))
+    target = types.SimpleNamespace(
+        session=target_session, is_private=False, tabopen=lambda: newtab,
+        window=lambda: types.SimpleNamespace(show=lambda: None))
+    monkeypatch.setattr(commands.objreg, 'window_registry', {1: target})
+    monkeypatch.setattr(commands.objreg, 'get', lambda *args, **kwargs: target)
+    monkeypatch.setattr(commands.windowsessions, 'check_same_profile',
+                        lambda a, b: None)
+    monkeypatch.setattr(dispatcher, '_current_widget', lambda: curtab)
+    monkeypatch.setattr(commands.sessionfile, 'tab_history',
+                        lambda moved: b'bytes')
+    monkeypatch.setattr(commands.sessionfile, 'deserialize_tab',
+                        lambda new, history: None)
+    monkeypatch.setattr(
+        commands.windowsessions, 'manager', types.SimpleNamespace(
+            carry_history=lambda src, dst, ids: events.append(
+                ('carry', src, dst, list(ids)))))
+
+    dispatcher.tab_give(win_id=1, keep=keep)
+
+    assert events == ([] if keep else [
+        ('carry', source, target_session, [curtab.data.persistent_id]),
+        'close'])
