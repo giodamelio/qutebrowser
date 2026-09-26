@@ -78,23 +78,21 @@ def close_choice(window: Any, preset: CloseChoice | None = None) -> CloseChoice:
 
 def _ask(window: Any) -> CloseChoice:
     session = window.session
-    count = len(session.windows)
+    # No window count: another window may close while this question shows.
     if session.private:
         this = "The private session keeps its other windows"
-        whole = (f"Close all {count} windows and discard private session "
-                 f"{session.name}")
+        whole = f"Private session {session.name} is discarded"
     else:
         this = "It can be brought back with :undo --window"
-        whole = (f"Close all {count} windows; :session-open {session.name} "
-                 "brings them back")
+        whole = f":session-open {session.name} brings them back"
     answer = message.ask(
         title="Close window?",
-        text=f"Session {session.name} has {count} windows.",
+        text=f"Session {session.name}",
         mode=usertypes.PromptMode.select,
         win_id=window.win_id,
         options=[
             ('window', "Close this window", this),
-            ('session', "Close the whole session", whole),
+            ('session', "Close the whole session (all its windows)", whole),
             ('cancel', "Cancel", "Keep this window open"),
         ])
     if answer is None:
