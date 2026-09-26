@@ -11,6 +11,7 @@ The tab serialization is upstream's, moved here from misc/sessions.py.
 import dataclasses
 import itertools
 import pathlib
+import struct
 import urllib.parse
 from typing import Any, TypeAlias
 from collections.abc import MutableMapping, MutableSequence
@@ -214,6 +215,74 @@ def tab_history(tab) -> bytes:
 def deserialize_tab(tab, history: bytes) -> None:
     """Replace a tab's history with saved bytes, loading its current page."""
     tab.history.private_api.deserialize(QByteArray(history))
+
+
+_HISTORY_HEADER = struct.Struct('>IIi')
+
+
+def has_history(data: bytes) -> bool:
+    """Check whether serialized tab history bytes describe any entries.
+
+    WebEngineHistoryPrivate.serialize() can return a canonical count-0 stub
+    (QTBUG-117489) if Qt is caught mid-load; writing that over a good
+    history file would silently erase a tab's history on the next
+    autosave, so it must never be treated as real data. Anything too short
+    to hold a header can't describe an entry either.
+    """
+    if len(data) < _HISTORY_HEADER.size:
+        return False
+    _version, count, _current = _HISTORY_HEADER.unpack_from(data)
+    return count > 0
+
+
+def window_history(window) -> dict[str, bytes]:
+    """Get the history bytes of a window's tabs, by tab id.
+
+    A tab whose history can't be serialized (e.g. an internal page) keeps
+    its readable history but gets no file. So does a tab whose bytes
+    describe no entries (see `has_history`).
+    """
+    from qutebrowser.browser import browsertab
+    history = {}
+    for tab in window.tabbed_browser.widgets():
+        try:
+            data = tab_history(tab)
+        except browsertab.WebTabError:
+            continue
+        if has_history(data):
+            history[tab.data.persistent_id] = data
+    return history
+
+
+def _window_ids(window: Any) -> set[str]:
+    if not isinstance(window, dict):
+        return set()
+    ids = set()
+    tabs = window.get('tabs')
+    if isinstance(tabs, list):
+        ids.update(tab.get('id') for tab in tabs if isinstance(tab, dict))
+    groups = window.get('closed_tabs')
+    if isinstance(groups, list):
+        for group in groups:
+            if isinstance(group, list):
+                ids.update(item.get('id') for item in group
+                           if isinstance(item, dict))
+    return ids
+
+
+def referenced_ids(data: SessionData) -> set[str]:
+    """Get the tab ids whose history files a session file refers to.
+
+    Hand edits can break the shape; whatever doesn't parse refers to
+    nothing, and invalid ids are never file names.
+    """
+    ids = set()
+    for window in data.windows:
+        ids |= _window_ids(window)
+    for entry in data.closed_windows:
+        if isinstance(entry, dict):
+            ids |= _window_ids(entry.get('window'))
+    return {tab_id for tab_id in ids if historystore.is_valid_id(tab_id)}
 
 
 def _claim_id(value: Any, used_ids: set[str]) -> str | None:

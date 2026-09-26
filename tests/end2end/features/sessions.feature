@@ -632,3 +632,23 @@ Feature: Saving and loading sessions
         - history:
           - url: http://localhost:*/data/numbers/5.txt
       """
+
+  # Tab history files
+
+  Scenario: Closed tabs leave no history files behind
+    When I set tabs.undo_stack_size to 0
+    And I run :session-new gone-tabs
+    And the window of session gone-tabs runs :open http://localhost:(port)/data/numbers/1.txt
+    And I wait until data/numbers/1.txt is loaded
+    And the window of session gone-tabs runs :open -t http://localhost:(port)/data/numbers/2.txt
+    And I wait until data/numbers/2.txt is loaded
+    And I run :debug-flush-sessions
+    And I wait for "Flushed sessions." in the log
+    # Proves tab 2's file exists before it's closed, so the next check below
+    # proves cleanup actually removed something rather than nothing ever
+    # having been written for it.
+    Then the history files of session gone-tabs should belong to its open tabs
+    When the window of session gone-tabs runs :tab-close
+    And I run :debug-flush-sessions
+    And I wait for "Flushed sessions." in the log
+    Then the history files of session gone-tabs should belong to its open tabs

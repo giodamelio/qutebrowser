@@ -92,7 +92,8 @@ def base_path(tmp_path):
 def manager(container_registry, profile_registry, base_path, state_config,
             fake_save_manager, windows, monkeypatch):
     mgr = windowsessions.SessionManager(
-        base_path, serialize_window=lambda window: {'win': window.win_id})
+        base_path, serialize_window=lambda window: {'win': window.win_id},
+        window_history=lambda window: {})
     mgr.load_all()
     monkeypatch.setattr(windowsessions, 'manager', mgr)
     return mgr

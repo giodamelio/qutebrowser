@@ -172,6 +172,11 @@ def remove_unreferenced(directory: pathlib.Path, referenced: set[str],
         paths = list(directory.iterdir())
     except FileNotFoundError:
         return
+    except OSError as e:
+        # Best-effort, like the per-file unlink below: harmless until the
+        # next save, which tries again.
+        log.sessions.warning(f"Failed to list {directory}: {e}")
+        return
     for path in paths:
         tab_id = None
         if path.name.endswith(SUFFIX + _TMP_SUFFIX):

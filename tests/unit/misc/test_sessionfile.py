@@ -312,3 +312,29 @@ def test_native_history_bytes_restore_every_entry(qtbot, webengine_tab):
 
     assert [item.url() for item in webengine_tab.history] == urls[:2]
     assert webengine_tab.url() == urls[1]
+
+
+def test_window_history():
+    tabbed_browser = FakeTabbedBrowser()
+    tab = tabbed_browser.tabopen(background=False)
+    window = FakeMainWindow(geometry=None, session=None)
+    window.tabbed_browser = tabbed_browser
+    assert sessionfile.window_history(window) == {
+        tab.data.persistent_id: b'live history'}
+
+
+def test_referenced_ids():
+    ids = [historystore.new_id() for _ in range(4)]
+    data = sessionfile.SessionData(
+        windows=[
+            {'tabs': [{'id': ids[0]}, {'id': '../evil'}, {}, 5],
+             'closed_tabs': [[{'id': ids[1]}], 'junk']},
+            'junk',
+        ],
+        closed_windows=[
+            {'window': {'tabs': [{'id': ids[2]}],
+                        'closed_tabs': [[{'id': ids[3]}]]}},
+            {'window': None},
+            5,
+        ])
+    assert sessionfile.referenced_ids(data) == set(ids)

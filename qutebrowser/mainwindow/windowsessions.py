@@ -15,7 +15,7 @@ import itertools
 import pathlib
 import re
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from qutebrowser.qt.core import QObject, pyqtSignal
@@ -23,7 +23,7 @@ from qutebrowser.qt.gui import QColor
 
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.config import config, configfiles, configtypes
-from qutebrowser.misc import containers, sessionfile
+from qutebrowser.misc import containers, historystore, sessionfile
 from qutebrowser.utils import log, message, objreg, standarddir, usertypes, utils
 
 
@@ -32,6 +32,7 @@ PRIVATE_PREFIX = 'private-'
 DEFAULT_CONTAINER = sessionfile.DEFAULT_CONTAINER
 _NAME_RE = re.compile(r'[a-z0-9][a-z0-9_-]*')
 SESSION_FILE = 'session.yml'
+HISTORY_DIR = 'history'
 _BROKEN_SUFFIX = '.broken'
 
 PrivateUnavailableError = profiles.PrivateUnavailableError
@@ -109,6 +110,11 @@ class Session:
         # Tracked apart from windows, because a release skipped as quitting
         # leaves the reference held with no windows left.
         self.holds_container = False
+        # By tab id, so a save rewrites only tabs whose history changed.
+        self.history_digests: dict[str, str] = {}
+        # Bytes of closed windows' tabs recorded since the last save: those
+        # tabs are gone, so nothing else could provide them.
+        self.held_history: dict[str, bytes] = {}
 
     def __repr__(self) -> str:
         return utils.get_repr(self, name=self.name, private=self.private,
@@ -213,9 +219,11 @@ class SessionManager:
             base_path: pathlib.Path,
             *,
             serialize_window: Callable[[Any], sessionfile.JsonType] = sessionfile.serialize_window,
+            window_history: Callable[[Any], dict[str, bytes]] = sessionfile.window_history,
     ) -> None:
         self._base_path = base_path
         self._serialize_window = serialize_window
+        self._window_history = window_history
         self._sessions: dict[str, Session] = {
             DEFAULT_NAME: Session(DEFAULT_NAME, private=False),
         }
@@ -268,6 +276,10 @@ class SessionManager:
                 self._unreadable.add(name)
                 message.error(f"Skipping session {name}: invalid container: {e}")
                 continue
+            # Left by a crash between writing history files and session.yml.
+            historystore.remove_unreferenced(directory / HISTORY_DIR,
+                                             sessionfile.referenced_ids(data),
+                                             {})
             session = Session(name, private=False, container=data.container)
             session.saved_windows = data.windows
             session.closed_windows = data.closed_windows
@@ -294,6 +306,8 @@ class SessionManager:
         directory = self.dir_for(session)
         if session.name in self._unreadable or not directory.exists():
             return
+        # The files move with the directory; the next save writes them all.
+        session.history_digests.clear()
         self._quarantine(session.name, directory,
                          f"Session {session.name} did not fully restore")
 
@@ -363,6 +377,13 @@ class SessionManager:
 
     def path_for(self, session: Session) -> pathlib.Path:
         return self.dir_for(session) / SESSION_FILE
+
+    def history_dir(self, session: Session) -> pathlib.Path:
+        return self.dir_for(session) / HISTORY_DIR
+
+    def window_history(self, window: Any) -> dict[str, bytes]:
+        """Get the history bytes of a window's tabs, by tab id."""
+        return self._window_history(window)
 
     def new_session(self, name: str, *,
                     container: str = DEFAULT_CONTAINER) -> Session:
@@ -550,11 +571,15 @@ class SessionManager:
         self._autosave.trigger()
 
     def save(self, session: Session, *, exclude: int | None = None) -> None:
-        """Write a session's live windows to its file."""
+        """Write a session's live windows and their tabs' history."""
         assert not session.private, session
-        windows = [self._serialize_window(objreg.window_registry[win_id])
-                   for win_id in sorted(session.windows) if win_id != exclude]
-        self._write(session, windows)
+        live = [objreg.window_registry[win_id]
+                for win_id in sorted(session.windows) if win_id != exclude]
+        history: dict[str, bytes] = {}
+        for window in live:
+            history.update(self._window_history(window))
+        self._write(session, [self._serialize_window(window) for window in live],
+                    history)
 
     def save_dirty(self) -> None:
         """Save every open, non-private session marked dirty."""
@@ -584,20 +609,35 @@ class SessionManager:
         except sessionfile.SessionFileError as e:
             message.error(f"Failed to save session {session.name}: {e}")
 
-    def _write(self, session: Session,
-               windows: list[sessionfile.JsonType]) -> None:
+    def _write(self, session: Session, windows: list[sessionfile.JsonType],
+               history: Mapping[str, bytes] | None = None) -> None:
         if session.name in self._unreadable:
             raise sessionfile.SessionFileError(
                 f"Refusing to overwrite unreadable session file "
                 f"{self.path_for(session)}")
-        directory = self.dir_for(session)
-        try:
-            directory.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            raise sessionfile.SessionFileError(f"{directory}: {e}")
-        sessionfile.write(self.path_for(session), sessionfile.SessionData(
+        data = sessionfile.SessionData(
             container=session.container, windows=windows,
-            closed_windows=session.closed_windows))
+            closed_windows=session.closed_windows)
+        referenced = sessionfile.referenced_ids(data)
+        available = {**session.held_history, **(history or {})}
+        history_dir = self.history_dir(session)
+        try:
+            history_dir.mkdir(parents=True, exist_ok=True)
+            # Before session.yml, so it never refers to a file that wasn't
+            # written (§21.4).
+            historystore.write_changed(
+                history_dir,
+                {tab_id: blob for tab_id, blob in available.items()
+                 if tab_id in referenced},
+                session.history_digests)
+        except OSError as e:
+            raise sessionfile.SessionFileError(f"{history_dir}: {e}")
+        except historystore.Error as e:
+            raise sessionfile.SessionFileError(str(e))
+        sessionfile.write(self.path_for(session), data)
+        historystore.remove_unreferenced(history_dir, referenced,
+                                         session.history_digests)
+        session.held_history.clear()
         session.saved_windows = windows
         session.last_saved = datetime.datetime.now()
         session.dirty = False
