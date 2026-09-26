@@ -143,8 +143,7 @@ def test_default_container_badge_stays_hidden_on_redraw(make_statusbar,
     statusbar = make_statusbar(
         windowsessions.Session('default', private=False))
     config_stub.val.statusbar.widgets = ['container', 'url']
-    # The badge hides itself via setVisible(), not by leaving the hbox, so
-    # visibility is what the brief's hiding code actually controls.
+    # The badge hides itself with setVisible() and stays in the hbox.
     assert not statusbar.container_name.isVisible()
     assert statusbar.container_name.isHidden()
 
