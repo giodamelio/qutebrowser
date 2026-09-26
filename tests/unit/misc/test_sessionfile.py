@@ -446,3 +446,116 @@ def test_restore_window_rejected_history(fake_mainwindows, histories,
                                    show=False)
     [window] = fake_mainwindows
     assert window.is_deleted
+
+
+def test_restore_window_lazy_tabs_wait_until_shown(fake_mainwindows,
+                                                   histories, config_stub):
+    config_stub.val.session.lazy_restore = True
+    hidden_id, shown_id = historystore.new_id(), historystore.new_id()
+    histories.update({hidden_id: b'hidden history',
+                      shown_id: b'shown history'})
+
+    window = restore({'tabs': [
+        tab_data(hidden_id, 'https://hidden.example/'),
+        tab_data(shown_id, 'https://shown.example/', active=True),
+    ]})
+
+    hidden, shown = window.tabbed_browser.tabs
+    assert shown.history.private_api.deserialized == b'shown history'
+    assert shown.data.lazy_history is None
+    assert hidden.history.private_api.deserialized is None
+    assert hidden.history.private_api.loaded is None
+    assert hidden.data.lazy_history.history == b'hidden history'
+    assert hidden.data.lazy_history.url == QUrl('https://hidden.example/')
+    assert hidden.title_changed.emitted == [('page',)]
+    assert window.tabbed_browser.current_tab_changed.slots == [
+        sessionfile.load_lazy_history]
+
+    sessionfile.load_lazy_history(hidden)
+    assert hidden.history.private_api.deserialized == b'hidden history'
+    assert hidden.data.lazy_history is None
+
+
+def test_restore_window_lazy_needs_its_own_tab_bar(fake_mainwindows,
+                                                   histories, config_stub):
+    config_stub.val.session.lazy_restore = True
+    config_stub.val.tabs.tabs_are_windows = True
+    first_id, second_id = historystore.new_id(), historystore.new_id()
+    histories.update({first_id: b'history', second_id: b'other'})
+    window = restore({'tabs': [tab_data(first_id),
+                               tab_data(second_id, active=True)]})
+    first = window.tabbed_browser.tabs[0]
+    assert first.data.lazy_history is None
+    assert first.history.private_api.deserialized == b'history'
+
+
+def test_lazy_tab_saves_its_saved_history():
+    tab = FakeTab()
+    tab.data.pinned = True
+    saved = {
+        'id': historystore.new_id(),
+        'history': [
+            {'url': 'https://a.example/', 'title': 'a', 'pinned': False},
+            {'url': 'https://b.example/', 'title': 'b', 'active': True,
+             'pinned': False},
+        ],
+    }
+    tab.data.lazy_history = sessionfile.LazyHistory(data=saved,
+                                                    history=b'saved bytes')
+
+    assert sessionfile.serialize_tab(tab, False) == {
+        'id': tab.data.persistent_id,
+        'history': [
+            {'url': 'https://a.example/', 'title': 'a', 'pinned': True},
+            {'url': 'https://b.example/', 'title': 'b', 'active': True,
+             'pinned': True},
+        ],
+    }
+    assert sessionfile.tab_history(tab) == b'saved bytes'
+    assert tab.data.lazy_history.url == QUrl('https://b.example/')
+
+
+def test_lazy_restore_without_bytes_keeps_upstream_behavior(
+        fake_mainwindows, config_stub, message_mock, caplog):
+    config_stub.val.session.lazy_restore = True
+    with caplog.at_level(logging.WARNING):
+        window = restore({'tabs': [tab_data(historystore.new_id())]})
+    [tab] = window.tabbed_browser.tabs
+    assert tab.data.lazy_history is None
+    assert [item.url.toString() for item in tab.history.private_api.loaded] == [
+        'https://example.org/', 'qute://back#page']
+
+
+def test_lazy_history_qt_refuses_loads_the_saved_page(config_stub,
+                                                      message_mock, caplog):
+    tab = FakeTab()
+
+    def reject(data):
+        raise OSError('QDataStream: read past end')
+
+    tab.history.private_api.deserialize = reject
+    tab.data.lazy_history = sessionfile.LazyHistory(
+        data=tab_data(None, 'https://a.example/'), history=b'bad')
+
+    with caplog.at_level(logging.ERROR):
+        sessionfile.load_lazy_history(tab)
+
+    assert tab.data.lazy_history is None
+    assert [item.url for item in tab.history.private_api.loaded] == [
+        QUrl('https://a.example/')]
+    assert 'read past end' in message_mock.getmsg(
+        usertypes.MessageLevel.error).text
+
+
+def test_restore_window_lazy_shows_the_last_active_tab(fake_mainwindows,
+                                                       histories, config_stub):
+    config_stub.val.session.lazy_restore = True
+    first_id, second_id = historystore.new_id(), historystore.new_id()
+    histories.update({first_id: b'first', second_id: b'second'})
+    window = restore({'tabs': [tab_data(first_id, active=True),
+                               tab_data(second_id, active=True)]})
+    first, second = window.tabbed_browser.tabs
+    assert window.tabbed_browser.widget.current_index == 1
+    assert second.data.lazy_history is None
+    assert second.history.private_api.deserialized == b'second'
+    assert first.data.lazy_history.history == b'first'

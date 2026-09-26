@@ -65,6 +65,31 @@ class TabHistoryItem:
                               last_visited=self.last_visited)
 
 
+def _active_entry(items: list[JsonType]) -> JsonType | None:
+    """Get the history entry a tab shows: the active one, else the last."""
+    return next((item for item in items if item.get('active')),
+                items[-1] if items else None)
+
+
+def _entry_url(entry: JsonType | None) -> QUrl:
+    if entry is None:
+        return QUrl()
+    return QUrl.fromEncoded(entry['url'].encode('ascii'))
+
+
+@dataclasses.dataclass
+class LazyHistory:
+
+    """A restored tab's saved history, kept until the tab is first shown."""
+
+    data: JsonType
+    history: bytes
+
+    @property
+    def url(self) -> QUrl:
+        return _entry_url(_active_entry(self.data['history']))
+
+
 @dataclasses.dataclass
 class SessionData:
 
@@ -166,12 +191,8 @@ def _serialize_tab_item(tab, idx, item):
     return data
 
 
-def serialize_tab(tab, active):
-    """Serialize a single tab with its history."""
-    data: JsonType = {'history': []}
-    if active:
-        data['active'] = True
-
+def _serialize_history(tab) -> list[JsonType]:
+    history: list[JsonType] = []
     for idx, item in enumerate(tab.history):
         qtutils.ensure_valid(item)
         item_data = _serialize_tab_item(tab, idx, item)
@@ -184,11 +205,28 @@ def serialize_tab(tab, active):
 
         if item.url().scheme() == 'qute' and item.url().host() == 'back':
             # don't add qute://back to the session file
-            if item_data.get('active', False) and data['history']:
+            if item_data.get('active', False) and history:
                 # mark entry before qute://back as active
-                data['history'][-1]['active'] = True
+                history[-1]['active'] = True
         else:
-            data['history'].append(item_data)
+            history.append(item_data)
+    return history
+
+
+def serialize_tab(tab, active):
+    """Serialize a single tab with its history."""
+    lazy = tab.data.lazy_history
+    if lazy is None:
+        data: JsonType = {'history': _serialize_history(tab)}
+    else:
+        # Never shown since it was restored, so what was saved is still
+        # its history (§21.5).
+        data = {key: value for key, value in lazy.data.items()
+                if key not in ['active', 'id']}
+        data['history'] = [dict(item, pinned=tab.data.pinned)
+                           for item in lazy.data['history']]
+    if active:
+        data['active'] = True
     data['id'] = tab.data.persistent_id
     return data
 
@@ -210,12 +248,31 @@ def serialize_window(window) -> JsonType:
 
 def tab_history(tab) -> bytes:
     """Get a tab's history in QtWebEngine's own format."""
+    lazy = tab.data.lazy_history
+    if lazy is not None:
+        return lazy.history
     return bytes(tab.history.private_api.serialize())
 
 
 def deserialize_tab(tab, history: bytes) -> None:
     """Replace a tab's history with saved bytes, loading its current page."""
     tab.history.private_api.deserialize(QByteArray(history))
+
+
+def load_lazy_history(tab) -> None:
+    """Load a lazily restored tab's history the first time it is shown."""
+    lazy = tab.data.lazy_history
+    if lazy is None:
+        return
+    tab.data.lazy_history = None
+    try:
+        deserialize_tab(tab, lazy.history)
+    except OSError as e:
+        # The window is open already, so unlike in restore_window it can't
+        # fail as a whole.
+        message.error(f"Failed to restore the history of "
+                      f"{lazy.url.toDisplayString()}: {e}")
+        _restore_tab(tab, lazy.data)
 
 
 _HISTORY_HEADER = struct.Struct('>IIi')
@@ -325,7 +382,7 @@ def _warn_without_history(problems: list[str]) -> None:
 
 
 def _restore_tab(new_tab, data,  # noqa: C901
-                 history: bytes | None = None):
+                 history: bytes | None = None, *, lazy: bool = False):
     """Load saved tab data into a newly opened tab.
 
     Args:
@@ -333,6 +390,7 @@ def _restore_tab(new_tab, data,  # noqa: C901
         data: The tab's readable data from the session file.
         history: The tab's history bytes, or None to load only its current
                  page from data, as upstream does.
+        lazy: Keep the history bytes until the tab is first shown.
     """
     entries = []
     lazy_load: MutableSequence[JsonType] = []
@@ -411,6 +469,8 @@ def _restore_tab(new_tab, data,  # noqa: C901
 
     if history is None:
         new_tab.history.private_api.load_items(entries)
+    elif lazy:
+        new_tab.data.lazy_history = LazyHistory(data=data, history=history)
     else:
         deserialize_tab(new_tab, history)
 
@@ -429,8 +489,17 @@ def restore_window(data: JsonType, session, *,  # noqa: C901
     tabbed_browser = window.tabbed_browser
     tab_to_focus = None
     problems: list[str] = []
+    # With tabs_are_windows every tab gets its own window, where it would
+    # never be shown in this window's tab bar.
+    lazy = (config.val.session.lazy_restore and
+            not config.val.tabs.tabs_are_windows)
     try:
-        for i, tab in enumerate(data['tabs']):
+        tabs = data['tabs']
+        # Without an active tab, the last one opened stays current; with
+        # several (hand edits), the last one is focused below.
+        shown = max((i for i, tab in enumerate(tabs)
+                     if tab.get('active', False)), default=len(tabs) - 1)
+        for i, tab in enumerate(tabs):
             new_tab = tabbed_browser.tabopen(background=False)
             tab_id = _claim_id(tab.get('id'), used_ids)
             history = None
@@ -440,7 +509,7 @@ def restore_window(data: JsonType, session, *,  # noqa: C901
             else:
                 new_tab.data.persistent_id = tab_id
                 history = _read_history(session, tab_id, tab_problems)
-            _restore_tab(new_tab, tab, history)
+            _restore_tab(new_tab, tab, history, lazy=lazy and i != shown)
             # A single entry has no back history to lose, and its file may
             # never have been written (see window_history).
             if len(tab['history']) > 1:
@@ -462,6 +531,8 @@ def restore_window(data: JsonType, session, *,  # noqa: C901
             f"{type(e).__name__}: {e}")
     if tab_to_focus is not None:
         tabbed_browser.widget.setCurrentIndex(tab_to_focus)
+    if lazy:
+        tabbed_browser.current_tab_changed.connect(load_lazy_history)
     if problems:
         _warn_without_history(problems)
 
