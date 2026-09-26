@@ -197,6 +197,32 @@ def test_close_choice_asks_in_private_sessions(manager, windows, fake_ask):
     assert 'discard' in kwargs['options'][1][2]
 
 
+def test_close_prompt_states_no_window_count(manager, windows, fake_ask):
+    window, _other = two_windows(manager, windows, manager.default)
+    open_window(manager, windows, manager.default, 3)
+    closedwindows.close_choice(window)
+    [kwargs] = fake_ask.calls
+    assert kwargs['text'] == 'Session default'
+    assert kwargs['options'][1][1:] == (
+        'Close the whole session (all its windows)',
+        ':session-open default brings them back')
+    shown = [kwargs['text']] + [part for option in kwargs['options']
+                                for part in option[1:]]
+    assert not any('3' in part for part in shown)
+
+
+def test_private_close_prompt_states_no_window_count(manager, windows,
+                                                     fake_ask):
+    private = manager.new_private()
+    window, _other = two_windows(manager, windows, private)
+    closedwindows.close_choice(window)
+    [kwargs] = fake_ask.calls
+    assert kwargs['text'] == f'Session {private.name}'
+    assert kwargs['options'][1][1:] == (
+        'Close the whole session (all its windows)',
+        f'Private session {private.name} is discarded')
+
+
 def test_close_choice_stale_window_answer(manager, windows, monkeypatch):
     """The other window may close while this window's prompt is blocking.
 
