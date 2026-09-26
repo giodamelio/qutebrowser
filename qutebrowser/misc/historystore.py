@@ -54,6 +54,16 @@ class UnusableHistoryError(Exception):
         self.reason = reason
 
 
+class Snapshot(bytes):
+
+    """History bytes that never change, such as a closed tab's."""
+
+    @functools.cached_property
+    def digest(self) -> str:
+        """Hashed once, as every save of the session needs it."""
+        return digest(self)
+
+
 def new_id() -> str:
     """Get a new tab id."""
     return uuid.uuid4().hex
@@ -149,13 +159,14 @@ def write_changed(directory: pathlib.Path, history: Mapping[str, bytes],
 
     Args:
         directory: The session's history directory, which must exist.
-        history: History bytes by tab id.
+        history: History bytes by tab id. A Snapshot is hashed only once.
         digests: Digests of the files on disk by tab id, updated as files
                  are written.
     """
     for tab_id, data in history.items():
         path = _path(directory, tab_id)
-        new_digest = digest(data)
+        new_digest = (data.digest if isinstance(data, Snapshot)
+                      else digest(data))
         if digests.get(tab_id) == new_digest:
             continue
         try:

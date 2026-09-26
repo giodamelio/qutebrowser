@@ -360,7 +360,8 @@ def _restore_closed_tabs(data: JsonType, session, used_ids: set[str],
                 problems += tab_problems
             entries.append(tabbedbrowser._UndoEntry(  # pylint: disable=protected-access
                 url=_entry_url(_active_entry(tab_data['history'])),
-                history=None if history is None else QByteArray(history),
+                history=(None if history is None
+                         else historystore.Snapshot(history)),
                 index=index,
                 pinned=pinned,
                 created_at=_closed_time(item['closed_at']),
@@ -402,8 +403,8 @@ def window_history(window) -> dict[str, bytes]:
     for group in tabbed_browser.undo_stack:
         for entry in group:
             # None for a tab restored without its history file.
-            if entry.history is not None and has_history(bytes(entry.history)):
-                history[entry.tab_id] = bytes(entry.history)
+            if entry.history is not None and has_history(entry.history):
+                history[entry.tab_id] = entry.history
     for tab in tabbed_browser.widgets():
         try:
             data = tab_history(tab)
