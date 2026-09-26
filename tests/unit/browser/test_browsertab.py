@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import copy
+import logging
 import types
 
 import pytest
@@ -9,7 +11,8 @@ import pytest
 from qutebrowser.qt.core import QUrl
 from qutebrowser.api import cmdutils
 from qutebrowser.browser import browsertab, commands
-from qutebrowser.misc import historystore
+from qutebrowser.misc import historystore, sessionfile
+from qutebrowser.utils import usertypes
 
 
 class TestAction:
@@ -76,3 +79,40 @@ def test_tab_take_wraps_history_error(config_stub, monkeypatch):
 
     with pytest.raises(cmdutils.CommandError):
         dispatcher.tab_take('1/1')
+
+
+@pytest.mark.parametrize('keep', [False, True])
+def test_tab_take_lazy_tab_qt_refuses(config_stub, monkeypatch, message_mock,
+                                      caplog, keep):
+    config_stub.val.session.lazy_restore = True
+
+    def reject(data):
+        raise OSError('QDataStream: read past end')
+
+    loaded = []
+    newtab = types.SimpleNamespace(
+        data=browsertab.TabData(),
+        history=types.SimpleNamespace(private_api=types.SimpleNamespace(
+            deserialize=reject, load_items=loaded.extend)),
+        title_changed=types.SimpleNamespace(emit=lambda title: None))
+    saved = {'history': [{'url': 'https://a.example/', 'title': 'a',
+                          'active': True}]}
+    tab = types.SimpleNamespace(data=browsertab.TabData())
+    tab.data.lazy_history = sessionfile.LazyHistory(data=copy.deepcopy(saved),
+                                                    history=b'bad')
+    dispatcher = commands.CommandDispatcher(0, types.SimpleNamespace(
+        session=object(), tabopen=lambda background, related: newtab))
+    other = types.SimpleNamespace(session=object(),
+                                  close_tab=lambda *args, **kwargs: None)
+    monkeypatch.setattr(dispatcher, '_resolve_tab_index',
+                        lambda index: (other, tab))
+    monkeypatch.setattr(commands.windowsessions, 'check_same_profile',
+                        lambda a, b: None)
+
+    with caplog.at_level(logging.ERROR):
+        dispatcher.tab_take('1/1', keep=keep)
+
+    assert loaded[0].url == QUrl('https://a.example/')
+    assert tab.data.lazy_history.data == saved
+    assert 'read past end' in message_mock.getmsg(
+        usertypes.MessageLevel.error).text
