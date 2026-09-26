@@ -700,8 +700,10 @@ class MainWindow(QWidget):
         if override is not None:
             # Something else decided this window's fate (e.g. closing its
             # whole session) while its own prompt was still showing; that
-            # decision wins over whatever the now-moot prompt says.
-            choice = override
+            # decision wins over whatever the now-moot prompt says. It goes
+            # through the table again: the session may be down to this
+            # window by now, which is then saved, not also recorded.
+            choice = closedwindows.close_choice(self, override)
         if choice is closedwindows.CloseChoice.cancel:
             log.destroy.debug("Cancelling closing of window {}".format(
                 self.win_id))

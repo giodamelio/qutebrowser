@@ -7,6 +7,7 @@
 import pytest
 from qutebrowser.qt.core import QUrl
 
+from qutebrowser.mainwindow import prompt
 from qutebrowser.misc import closedwindows, utilcmds
 from qutebrowser.api import cmdutils
 from qutebrowser.utils import objreg
@@ -38,9 +39,26 @@ class FakeWindow:
         self.closed = True
 
 
+class FakePromptQueue:
+
+    """Records whose questions were aborted, and whether they had closed."""
+
+    def __init__(self, windows):
+        self._windows = windows
+        self.aborted = []
+
+    def abort_window(self, win_id):
+        self.aborted.append((win_id, self._windows[win_id].closed))
+
+
 def test_window_only(mocker, monkeypatch):
-    """Verify that window_only doesn't close the current or deleted windows."""
+    """Verify that window_only doesn't close the current or deleted windows.
+
+    It aborts the questions of each window it closes, before closing it.
+    """
     test_windows = {0: FakeWindow(), 1: FakeWindow(True), 2: FakeWindow()}
+    queue = FakePromptQueue(test_windows)
+    monkeypatch.setattr(prompt, 'prompt_queue', queue)
     winreg_mock = mocker.patch('qutebrowser.misc.utilcmds.objreg')
     winreg_mock.window_registry = test_windows
     sip_mock = mocker.patch('qutebrowser.misc.utilcmds.sip')
@@ -50,6 +68,7 @@ def test_window_only(mocker, monkeypatch):
     assert not test_windows[1].closed
     assert test_windows[2].closed
     assert test_windows[2].close_choice is closedwindows.CloseChoice.window
+    assert queue.aborted == [(2, False)]
 
 
 @pytest.fixture
