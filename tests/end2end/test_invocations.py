@@ -1548,6 +1548,31 @@ def test_lazy_restore_loads_whole_history_when_shown(request, quteproc_new,
     quteproc_new.wait_for_quit()
 
 
+def test_lazy_tab_is_found_by_its_saved_url(request, quteproc_new,
+                                            short_tmpdir):
+    """An unshown lazily restored tab matches its saved URL (§23.1).
+
+    title.html's title is "Test title", so only the URL column matches.
+    """
+    args = (_base_args(request.config) + ['--basedir', str(short_tmpdir)] +
+            ['-s', 'session.lazy_restore', 'true'])
+    quteproc_new.start(args)
+    quteproc_new.wait_for(message='Setting session.lazy_restore *')
+    quteproc_new.open_path('data/numbers/1.txt')
+    quteproc_new.open_path('data/title.html')
+    quteproc_new.open_path('data/numbers/3.txt', new_tab=True)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    quteproc_new.wait_for(message='Setting session.lazy_restore *')
+    quteproc_new.wait_for_load_finished('data/numbers/3.txt')
+    quteproc_new.send_cmd(':tab-select title.html')
+    quteproc_new.wait_for_load_finished('data/title.html')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
 def test_undo_after_restart_reopens_tab_with_history(request, quteproc_new,
                                                      short_tmpdir):
     """Tabs closed before a restart come back with :undo (§21.3)."""

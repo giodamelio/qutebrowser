@@ -540,6 +540,33 @@ def test_lazy_tab_saves_its_saved_history():
     assert tab.data.lazy_history.url == QUrl('https://b.example/')
 
 
+def lazy_history(*, active=True):
+    return sessionfile.LazyHistory(data={'history': [
+        {'url': 'https://a.example/', 'title': 'a'},
+        {'url': 'https://b.example/', 'title': 'b', 'active': active},
+    ]}, history=b'saved bytes')
+
+
+@pytest.mark.parametrize('active', [True, False])
+def test_tab_url_and_title_of_an_unshown_lazy_tab(active):
+    tab = FakeTab()
+    tab.data.lazy_history = lazy_history(active=active)
+    assert sessionfile.tab_url(tab) == QUrl('https://b.example/')
+    assert sessionfile.tab_title(tab) == 'b'
+
+
+def test_tab_url_and_title_follow_the_live_page_once_shown():
+    tab = FakeTab()
+    tab.url = lambda: QUrl('https://live.example/')
+    tab.title = lambda: 'live'
+    tab.data.lazy_history = lazy_history()
+
+    sessionfile.load_lazy_history(tab)
+
+    assert sessionfile.tab_url(tab) == QUrl('https://live.example/')
+    assert sessionfile.tab_title(tab) == 'live'
+
+
 def test_lazy_restore_without_bytes_keeps_upstream_behavior(
         fake_mainwindows, config_stub, message_mock, caplog):
     config_stub.val.session.lazy_restore = True

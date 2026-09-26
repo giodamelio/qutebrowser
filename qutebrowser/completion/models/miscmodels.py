@@ -12,6 +12,7 @@ from qutebrowser.config import config, configdata
 from qutebrowser.utils import objreg, log, utils
 from qutebrowser.completion.models import completionmodel, listcategory, util
 from qutebrowser.browser import inspector
+from qutebrowser.misc import sessionfile
 
 
 def command(*, info):
@@ -149,7 +150,7 @@ def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=Non
 
             tab_entries.append((
                 tab_str,
-                tab.url().toDisplayString(),
+                sessionfile.tab_url(tab).toDisplayString(),
                 tabbed_browser.widget.page_title(idx),
                 "" if pid is None else f"PID {pid}",
             ))
@@ -215,7 +216,8 @@ def window(*, info):
             continue
         tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                     window=win_id)
-        tab_titles = (tab.title() for tab in tabbed_browser.widgets())
+        tab_titles = (sessionfile.tab_title(tab)
+                      for tab in tabbed_browser.widgets())
         windows.append(("{}".format(win_id),
                         objreg.window_registry[win_id].windowTitle(),
                         ", ".join(tab_titles)))

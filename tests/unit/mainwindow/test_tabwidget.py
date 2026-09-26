@@ -12,6 +12,7 @@ from unittest.mock import Mock
 
 from qutebrowser.qt.gui import QIcon, QPixmap
 from qutebrowser.mainwindow import tabwidget, windowsessions
+from qutebrowser.misc import sessionfile
 from qutebrowser.utils import usertypes
 
 
@@ -55,6 +56,17 @@ class TestTabWidget:
         fields = widget.get_tab_fields(0)
         assert (fields['session'], fields['container'],
                 fields['private']) == expected
+
+    def test_lazy_tab_url_fields(self, widget, fake_web_tab):
+        tab = fake_web_tab()
+        tab.data.lazy_history = sessionfile.LazyHistory(
+            data={'history': [{'url': 'https://lazy.example/page',
+                               'title': 'Lazy', 'active': True}]},
+            history=b'saved bytes')
+        widget.addTab(tab, 'Lazy')
+        fields = widget.get_tab_fields(0)
+        assert (fields['current_url'], fields['host'], fields['protocol']) == (
+            'https://lazy.example/page', 'lazy.example', 'https')
 
     # Sizing tests
 

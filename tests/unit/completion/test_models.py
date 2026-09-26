@@ -24,7 +24,7 @@ try:
 except ImportError:
     pass
 
-from qutebrowser.misc import objects, guiprocess
+from qutebrowser.misc import objects, guiprocess, sessionfile
 from qutebrowser.completion import completer
 from qutebrowser.completion.models import (
     configmodel, listcategory, miscmodels, urlmodel, filepathcategory)
@@ -1058,6 +1058,57 @@ def test_window_completion(qtmodeltester, fake_web_tab, tabbed_browser_stubs,
         'Windows': [
             ('0', 'window title - qutebrowser',
              'GitHub, Wikipedia, DuckDuckGo'),
+        ]
+    })
+
+
+def lazy_web_tab(fake_web_tab, url, title, tab_id):
+    """A lazily restored tab that hasn't been shown: no live URL or title."""
+    tab = fake_web_tab(QUrl(), '', tab_id)
+    tab.data.lazy_history = sessionfile.LazyHistory(
+        data={'history': [{'url': url, 'title': title, 'active': True}]},
+        history=b'saved bytes')
+    return tab
+
+
+def test_tab_completion_lazy_tab_url(qtmodeltester, fake_web_tab,
+                                     win_registry, tabbed_browser_stubs):
+    tabbed_browser_stubs[0].widget.tabs = [
+        fake_web_tab(QUrl('https://github.com'), 'GitHub', 0),
+        lazy_web_tab(fake_web_tab, 'https://wikipedia.org/', 'Wikipedia', 1),
+    ]
+    tabbed_browser_stubs[1].widget.tabs = []
+    model = miscmodels.tabs()
+    model.set_pattern('')
+    qtmodeltester.check(model)
+
+    # The stub's title column reads the live title; the real one reads the
+    # tab bar, which restoring already set from the saved title.
+    _check_completions(model, {
+        '0': [
+            ('0/1', 'https://github.com', 'GitHub'),
+            ('0/2', 'https://wikipedia.org/', ''),
+        ],
+        '1': [],
+    })
+
+
+def test_window_completion_lazy_tab_title(qtmodeltester, fake_web_tab,
+                                          tabbed_browser_stubs, info):
+    tabbed_browser_stubs[0].widget.tabs = [
+        fake_web_tab(QUrl('https://github.com'), 'GitHub', 0),
+        lazy_web_tab(fake_web_tab, 'https://wikipedia.org/', 'Wikipedia', 1),
+    ]
+    tabbed_browser_stubs[1].widget.tabs = []
+
+    info.win_id = 1
+    model = miscmodels.window(info=info)
+    model.set_pattern('')
+    qtmodeltester.check(model)
+
+    _check_completions(model, {
+        'Windows': [
+            ('0', 'window title - qutebrowser', 'GitHub, Wikipedia'),
         ]
     })
 
