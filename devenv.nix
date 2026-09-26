@@ -34,6 +34,25 @@ let
         ];
         doCheck = false;
       });
+
+      # Not in nixpkgs. Built from the prebuilt wheel, which links only
+      # libgcc_s and glibc, so the devenv needs no Rust toolchain.
+      frizbee = pyfinal.buildPythonPackage rec {
+        pname = "frizbee";
+        version = "0.13.0";
+        format = "wheel";
+        src = pkgs.fetchPypi {
+          inherit pname version format;
+          dist = "cp310";
+          python = "cp310";
+          abi = "abi3";
+          platform = "manylinux_2_17_x86_64.manylinux2014_x86_64";
+          hash = "sha256-Ez4ynvpXkSQ0xN4Pk1FY6mm2wCohV9XXcrP4u0XOrXY=";
+        };
+        nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+        buildInputs = [ pkgs.stdenv.cc.cc.lib ];
+        pythonImportsCheck = [ "frizbee" ];
+      };
     };
   };
 
@@ -46,6 +65,7 @@ let
     pygments
     adblock
     colorama
+    frizbee
 
     # Test dependencies
     pytest
