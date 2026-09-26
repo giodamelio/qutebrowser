@@ -490,6 +490,10 @@ class CommandDispatcher:
         if not keep:
             # The same tab, moved, so its saved history file stays its own.
             newtab.data.persistent_id = tab.data.persistent_id
+            # Before the close, which can save the source without its file.
+            windowsessions.manager.carry_history(
+                tabbed_browser.session, self._tabbed_browser.session,
+                [tab.data.persistent_id])
             tabbed_browser.close_tab(tab, add_undo=False, transfer=True)
 
     @cmdutils.register(instance='command-dispatcher', scope='window')
@@ -552,6 +556,10 @@ class CommandDispatcher:
         if not keep:
             # The same tab, moved, so its saved history file stays its own.
             newtab.data.persistent_id = curtab.data.persistent_id
+            # Before the close, which can save the source without its file.
+            windowsessions.manager.carry_history(
+                self._tabbed_browser.session, tabbed_browser.session,
+                [curtab.data.persistent_id])
             self._tabbed_browser.close_tab(curtab, add_undo=False,
                                            transfer=True)
 

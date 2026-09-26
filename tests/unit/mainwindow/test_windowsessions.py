@@ -1183,6 +1183,67 @@ def test_move_window_moves_history_files(history_manager, windows, base_path):
     assert historystore.read(base_path / 'play' / 'history', ID_B) == b'moves'
 
 
+def test_move_window_mid_load_keeps_its_file(history_manager, windows,
+                                             base_path, monkeypatch):
+    work = history_manager.new_session('work')
+    history_window(history_manager, windows, work, 1, {ID_A: b'stays'})
+    moving = history_window(history_manager, windows, work, 2,
+                            {ID_B: b'saved'})
+    history_manager.save(work)
+    play = history_manager.new_session('play')
+    # sessionfile.window_history leaves out a tab caught mid-load.
+    monkeypatch.setattr(
+        history_manager, '_window_history',
+        lambda window: {} if window is moving else dict(window.history))
+
+    history_manager.move_window(moving, play)
+
+    assert history_files(base_path, 'work') == [f'{ID_A}.bin']
+    assert history_files(base_path, 'play') == [f'{ID_B}.bin']
+    assert historystore.read(base_path / 'play' / 'history', ID_B) == b'saved'
+
+
+def test_move_window_live_history_wins_over_carried_file(history_manager,
+                                                         windows, base_path):
+    work = history_manager.new_session('work')
+    history_window(history_manager, windows, work, 1, {ID_A: b'stays'})
+    moving = history_window(history_manager, windows, work, 2,
+                            {ID_B: b'saved'})
+    history_manager.save(work)
+    play = history_manager.new_session('play')
+    moving.history[ID_B] = b'navigated since'
+
+    history_manager.move_window(moving, play)
+
+    assert historystore.read(base_path / 'play' / 'history',
+                             ID_B) == b'navigated since'
+
+
+def test_carry_history(history_manager, windows):
+    work = history_manager.new_session('work')
+    history_window(history_manager, windows, work, 1, {ID_A: b'saved'})
+    history_manager.save(work)
+    play = history_manager.new_session('play')
+
+    history_manager.carry_history(work, play, [ID_A, ID_B])
+
+    assert play.held_history == {ID_A: b'saved'}
+
+
+def test_carry_history_within_a_session_or_privately(history_manager,
+                                                     windows):
+    work = history_manager.new_session('work')
+    history_window(history_manager, windows, work, 1, {ID_A: b'saved'})
+    history_manager.save(work)
+    private = history_manager.new_private()
+
+    history_manager.carry_history(work, work, [ID_A])
+    history_manager.carry_history(work, private, [ID_A])
+
+    assert work.held_history == {}
+    assert private.held_history == {}
+
+
 def test_move_aside_forgets_history_digests(history_manager, base_path,
                                             message_mock, caplog):
     work = history_manager.new_session('work')

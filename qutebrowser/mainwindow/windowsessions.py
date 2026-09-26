@@ -15,7 +15,7 @@ import itertools
 import pathlib
 import re
 import shutil
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, cast
 
 from qutebrowser.qt.core import QObject, pyqtSignal
@@ -423,6 +423,24 @@ class SessionManager:
         session.history_digests[tab_id] = historystore.digest(data)
         return data
 
+    def carry_history(self, source: Session, target: Session,
+                      tab_ids: Iterable[str]) -> None:
+        """Hold the saved history of tabs moving to another session.
+
+        A tab caught mid-load has no bytes to save (sessionfile.has_history),
+        and the source's next save deletes its file, so the target holds the
+        source's copy until its own next save writes it. Live bytes win over
+        it whenever that save finds them.
+        """
+        if source is target or source.private or target.private:
+            return
+        for tab_id in tab_ids:
+            try:
+                target.held_history[tab_id] = self.read_history(source, tab_id)
+            except historystore.UnusableHistoryError:
+                # Such a tab restores without back history either way.
+                continue
+
     def new_session(self, name: str, *,
                     container: str = DEFAULT_CONTAINER) -> Session:
         """Create a session and its file, without opening it."""
@@ -582,6 +600,9 @@ class SessionManager:
         assert source is not target, source
         assert not source.private and not target.private, (source, target)
         assert source.profile_key == target.profile_key, (source, target)
+        # Before saving source, which deletes the moving tabs' files there.
+        self.carry_history(source, target, sessionfile.referenced_ids(
+            sessionfile.SessionData(windows=[self._serialize_window(window)])))
         self.save(source, exclude=window.win_id)
         source.windows.discard(window.win_id)
         window.session = target
