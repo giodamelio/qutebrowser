@@ -677,7 +677,8 @@ class MainWindow(QWidget):
             self.should_raise = False
 
     def closeEvent(self, e):
-        """Ask what to close when this window's session has other windows."""
+        """Ask about running downloads if this is the last window, then what
+        to close if its session has other windows."""
         if crashsignal.crash_handler.is_crashing:
             e.accept()
             return
