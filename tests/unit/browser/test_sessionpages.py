@@ -288,9 +288,29 @@ def test_sessions_page_unreadable(manager, base_path, message_mock, caplog):
 
     html = page(sessionpages.qute_sessions)
 
-    assert f'<li class="mono">{base_path / "broken"}</li>' in html
+    assert (f'<li><span class="mono">{base_path / "broken"}</span>: '
+            'not listed below</li>') in html
     assert "These sessions couldn't be read." in html
     assert 'id="session-broken"' not in html
+
+
+def test_sessions_page_unreadable_and_listed(manager, base_path,
+                                             message_mock, caplog):
+    """A directory that couldn't be moved aside keeps its session listed."""
+    (base_path / 'default').mkdir(parents=True, exist_ok=True)
+    (base_path / 'default' / 'session.yml').write_text('windows: [\n',
+                                                       encoding='utf-8')
+    (base_path / 'default.broken').mkdir()
+    with caplog.at_level(logging.ERROR):
+        manager.load_all()
+
+    html = page(sessionpages.qute_sessions)
+
+    assert (f'<li><span class="mono">{base_path / "default"}</span>: '
+            "session default below isn't saved until this directory is "
+            'repaired or removed</li>') in html
+    assert 'id="session-default"' in html
+    assert 'not listed below' not in html
 
 
 def test_sessions_page_lists_set_aside_sessions(manager, base_path):

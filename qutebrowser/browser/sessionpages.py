@@ -6,6 +6,7 @@
 
 import dataclasses
 import datetime
+import pathlib
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -94,6 +95,20 @@ class PrivateRow:
 
     name: str
     counts: str
+
+
+@dataclasses.dataclass(frozen=True)
+class UnreadableRow:
+
+    """A session directory whose session.yml couldn't be used.
+
+    Its session can still be listed: a directory that couldn't be moved
+    aside keeps the in-memory session that replaced it, which isn't saved.
+    """
+
+    path: pathlib.Path
+    name: str
+    listed: bool
 
 
 def _plural(number: int, noun: str) -> str:
@@ -218,10 +233,13 @@ def qute_sessions(_url: QUrl) -> tuple[str, str]:
     ]
     private = [PrivateRow(name=session.name, counts=_live_counts(session))
                for session in manager.private_sessions()]
+    listed = {row.name for row in saved}
+    unreadable = [UnreadableRow(path=path, name=path.name,
+                                listed=path.name in listed)
+                  for path in manager.unreadable_paths()]
     return 'text/html', jinja.render(
         'sessions.html', title='Sessions', saved=saved, private=private,
-        unreadable=manager.unreadable_paths(),
-        set_aside=manager.set_aside_paths())
+        unreadable=unreadable, set_aside=manager.set_aside_paths())
 
 
 def open_page(url: str, win_id: int, *, tab: bool, bg: bool,

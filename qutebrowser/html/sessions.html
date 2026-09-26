@@ -32,10 +32,10 @@ th {
 <p class="note">This page is read-only. Change sessions with the <span class="mono">:session-</span> commands.</p>
 {% if unreadable %}
 <div class="unreadable">
-<p class="warning">These sessions couldn't be read. Their directories are left untouched and they aren't listed below:</p>
+<p class="warning">These sessions couldn't be read. Their directories are left untouched:</p>
 <ul>
-{% for path in unreadable %}
-    <li class="mono">{{ path }}</li>
+{% for row in unreadable %}
+    <li><span class="mono">{{ row.path }}</span>: {% if row.listed %}session {{ row.name }} below isn't saved until this directory is repaired or removed{% else %}not listed below{% endif %}</li>
 {% endfor %}
 </ul>
 </div>
