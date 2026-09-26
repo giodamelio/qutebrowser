@@ -245,6 +245,64 @@ def test_close_choice_stale_window_answer(manager, windows, monkeypatch):
     assert manager.default.closed_windows == []
 
 
+@pytest.mark.parametrize('answer, expected', [
+    (True, CloseChoice.plain),
+    (False, CloseChoice.cancel),
+    (None, CloseChoice.cancel),
+])
+def test_close_prompt_leaving_the_last_window_asks_about_downloads(
+        manager, windows, monkeypatch, fake_ask, download_managers, answer,
+        expected):
+    window, other = two_windows(manager, windows, manager.default)
+    download_managers[1].start()
+
+    def ask_then_other_window_closes(_window):
+        manager.remove_window(manager.default, other.win_id)
+        del windows[other.win_id]
+        return CloseChoice.window
+
+    monkeypatch.setattr(closedwindows, '_ask', ask_then_other_window_closes)
+    fake_ask.answer = answer
+    assert closedwindows.close_choice(window) is expected
+    [kwargs] = fake_ask.calls
+    assert kwargs['mode'] is usertypes.PromptMode.yesno
+    assert kwargs['win_id'] == 1
+
+
+def test_close_prompt_with_other_windows_left_skips_downloads(
+        manager, windows, fake_ask, download_managers):
+    window, _other = two_windows(manager, windows, manager.default)
+    download_managers[1].start()
+    fake_ask.answer = 'window'
+    assert closedwindows.close_choice(window) is CloseChoice.window
+    [kwargs] = fake_ask.calls
+    assert kwargs['mode'] is usertypes.PromptMode.select
+
+
+@pytest.mark.parametrize('by_page', [False, True])
+def test_last_tab_prompt_leaving_the_last_window_asks_about_downloads(
+        manager, windows, monkeypatch, fake_ask, download_managers, by_page):
+    window, other = two_windows(manager, windows, manager.default)
+    download_managers[1].start()
+
+    def ask_then_other_window_closes(_window):
+        manager.remove_window(manager.default, other.win_id)
+        del windows[other.win_id]
+        return CloseChoice.window
+
+    monkeypatch.setattr(closedwindows, '_ask', ask_then_other_window_closes)
+    fake_ask.answer = False
+    if by_page:
+        # A page's close is preset and never shows the close prompt.
+        assert (last_tab_close_choice(window, by_page=True) is
+                CloseChoice.window)
+        assert not fake_ask.calls
+    else:
+        assert last_tab_close_choice(window) is CloseChoice.cancel
+        [kwargs] = fake_ask.calls
+        assert kwargs['mode'] is usertypes.PromptMode.yesno
+
+
 def test_window_close(manager, windows):
     window = open_window(manager, windows, manager.default, 1)
     closedwindows.window_close(win_id=1)
