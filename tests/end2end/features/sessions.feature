@@ -596,6 +596,19 @@ Feature: Saving and loading sessions
     And I wait for "removed: main-window" in the log
     Then session close-reentrant should have 0 windows
 
+  Scenario: Running :window-only while a closing window shows the close prompt
+    When I clear the log
+    And I run :session-new only-reentrant
+    And the window of session only-reentrant runs :open -w about:blank
+    And the window of session only-reentrant runs :cmd-later 10 close
+    And I wait for "Asking question *" in the log
+    And the window of session default runs :window-only
+    And I wait for "removed: main-window" in the log
+    And I wait for "removed: main-window" in the log
+    And I run :session-restore-window only-reentrant 2
+    Then session only-reentrant should have 0 windows
+    And the error "Session only-reentrant has no closed window 2" should be shown
+
   Scenario: A page closing its window's last tab records the window
     When I clear the log
     And I set tabs.last_close to close

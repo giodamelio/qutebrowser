@@ -21,6 +21,7 @@ from qutebrowser.api import cmdutils
 from qutebrowser.misc import (  # pylint: disable=unused-import
     consolewidget, debugcachestats, objects, miscwidgets)
 from qutebrowser.misc import closedwindows
+from qutebrowser.mainwindow import prompt
 from qutebrowser.utils.version import pastebin_version
 from qutebrowser.qt import sip
 
@@ -247,6 +248,9 @@ def window_only(current_win_id: int) -> None:
         if win_id != current_win_id:
             # Asking about every window would defeat the command.
             window.close_choice = closedwindows.CloseChoice.window
+            # Qt swallows close() on a window whose close prompt is still
+            # open; aborting it lets its closeEvent follow close_choice.
+            prompt.prompt_queue.abort_window(win_id)
             window.close()
 
 
