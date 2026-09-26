@@ -5,6 +5,7 @@
 import datetime
 import itertools
 import logging
+import types
 
 import pytest
 
@@ -68,6 +69,17 @@ class FakePromptQueue:
         self.aborted_win_ids.append(win_id)
 
 
+class FakeDownloadManager:
+
+    """Stands in for a download manager's list of downloads."""
+
+    def __init__(self):
+        self.downloads = []
+
+    def start(self, *, done=False):
+        self.downloads.append(types.SimpleNamespace(done=done))
+
+
 @pytest.fixture(autouse=True)
 def fake_timers(monkeypatch, stubs):
     monkeypatch.setattr(windowsessions.usertypes, 'Timer', stubs.FakeTimer)
@@ -79,6 +91,17 @@ def fake_prompt_queue(monkeypatch):
     queue = FakePromptQueue()
     monkeypatch.setattr(prompt, 'prompt_queue', queue)
     return queue
+
+
+@pytest.fixture(autouse=True)
+def download_managers():
+    """Both download managers, with no downloads unless a test starts one."""
+    managers = [FakeDownloadManager(), FakeDownloadManager()]
+    objreg.register('qtnetwork-download-manager', managers[0])
+    objreg.register('webengine-download-manager', managers[1])
+    yield managers
+    objreg.delete('qtnetwork-download-manager')
+    objreg.delete('webengine-download-manager')
 
 
 @pytest.fixture
@@ -455,3 +478,37 @@ def test_record_holds_nothing_for_private(manager, windows):
     window.history = {historystore.new_id(): b'private'}
     closedwindows.record(window)
     assert private.held_history == {}
+
+
+def test_running_downloads(download_managers):
+    qtnetwork, webengine = download_managers
+    qtnetwork.start()
+    qtnetwork.start(done=True)
+    webengine.start()
+    assert closedwindows.running_downloads() == 2
+
+
+def test_confirm_quit_without_downloads(download_managers, fake_ask):
+    download_managers[0].start(done=True)
+    assert closedwindows.confirm_quit(1)
+    assert not fake_ask.calls
+
+
+@pytest.mark.parametrize('count, title', [
+    (1, "1 download still running. Close anyway?"),
+    (2, "2 downloads still running. Close anyway?"),
+])
+@pytest.mark.parametrize('answer, expected', [
+    (True, True),
+    (False, False),
+    (None, False),
+])
+def test_confirm_quit_asks(download_managers, fake_ask, count, title, answer,
+                           expected):
+    for _ in range(count):
+        download_managers[1].start()
+    fake_ask.answer = answer
+    assert closedwindows.confirm_quit(4) is expected
+    assert fake_ask.calls == [{
+        'title': title, 'mode': usertypes.PromptMode.yesno,
+        'default': False, 'win_id': 4}]

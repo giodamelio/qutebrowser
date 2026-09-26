@@ -9,6 +9,8 @@ that window or the whole session.
 
 Windows closed that way are kept, newest first, in their session's
 closed_windows, which is saved with the session file.
+
+Quitting while downloads are running asks first, since it ends them.
 """
 
 import datetime
@@ -97,6 +99,30 @@ def _ask(window: Any) -> CloseChoice:
     if answer is None:
         return CloseChoice.cancel
     return CloseChoice(answer)
+
+
+def running_downloads() -> int:
+    """Count the downloads that quitting would end."""
+    return sum(not download.done
+               for name in ['qtnetwork-download-manager',
+                            'webengine-download-manager']
+               for download in objreg.get(name).downloads)
+
+
+def confirm_quit(win_id: int) -> bool:
+    """Ask in a window whether to quit while downloads are running.
+
+    Return:
+        Whether quitting may go ahead.
+    """
+    count = running_downloads()
+    if not count:
+        return True
+    noun = 'download' if count == 1 else 'downloads'
+    answer = message.ask(
+        title=f"{count} {noun} still running. Close anyway?",
+        mode=usertypes.PromptMode.yesno, default=False, win_id=win_id)
+    return bool(answer)
 
 
 @cmdutils.register()

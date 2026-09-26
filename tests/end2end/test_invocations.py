@@ -1573,3 +1573,42 @@ def test_undo_after_restart_reopens_tab_with_history(request, quteproc_new,
         (tab['id'], _urls(tab)) for tab in window['tabs']]
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()
+
+
+_DOWNLOADS_QUESTION = (
+    "Asking question <qutebrowser.utils.usertypes.Question default=False "
+    "mode=<PromptMode.yesno: 1> option=None text=None "
+    "title='1 download still running. Close anyway?'>, *")
+
+
+@pytest.mark.parametrize('closing', ['quit'])
+def test_closing_with_running_downloads_asks(request, quteproc_new, server,
+                                             tmp_path, closing):
+    """Quitting with a download running asks first; no keeps everything."""
+    args = _base_args(request.config) + [
+        '--temp-basedir',
+        '-s', 'downloads.location.prompt', 'false',
+        '-s', 'downloads.location.directory', str(tmp_path),
+        '-s', 'tabs.last_close', 'close',
+    ]
+    quteproc_new.start(args)
+    quteproc_new.send_cmd(f':download http://localhost:{server.port}/drip'
+                          '?numbytes=128&duration=30')
+    quteproc_new.wait_for(message='fetch: * -> drip')
+
+    quteproc_new.send_cmd(f':cmd-later 10 {closing}')
+    quteproc_new.wait_for(message=_DOWNLOADS_QUESTION)
+    quteproc_new.send_cmd(':prompt-accept no')
+    quteproc_new.wait_for(message='Ending loop.exec() for *')
+    quteproc_new.compare_session("""
+        windows:
+            - session: default
+              tabs:
+              - history:
+                - url: about:blank
+    """)
+
+    quteproc_new.send_cmd(f':cmd-later 10 {closing}')
+    quteproc_new.wait_for(message=_DOWNLOADS_QUESTION)
+    quteproc_new.send_cmd(':prompt-accept yes')
+    quteproc_new.wait_for_quit()
