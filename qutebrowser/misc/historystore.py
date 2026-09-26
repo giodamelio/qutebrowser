@@ -167,7 +167,8 @@ def write_changed(directory: pathlib.Path, history: Mapping[str, bytes],
         path = _path(directory, tab_id)
         new_digest = (data.digest if isinstance(data, Snapshot)
                       else digest(data))
-        if digests.get(tab_id) == new_digest:
+        # A file deleted behind our back is written again.
+        if digests.get(tab_id) == new_digest and path.exists():
             continue
         try:
             _write(path, data)
