@@ -123,6 +123,8 @@ class TabData:
         persistent_id: The tab's id in session files. It stays with the tab
                        when it moves to another window or session, and names
                        its history file.
+        lazy_history: The saved history of a lazily restored tab that
+                      hasn't been shown yet.
     """
 
     keep_icon: bool = False
@@ -137,6 +139,7 @@ class TabData:
     last_navigation: usertypes.NavigationRequest | None = None
     splitter: miscwidgets.InspectorSplitter | None = None
     persistent_id: str = dataclasses.field(default_factory=historystore.new_id)
+    lazy_history: Optional['sessionfile.LazyHistory'] = None
 
     def should_show_icon(self) -> bool:
         return (config.val.tabs.favicons.show == 'always' or

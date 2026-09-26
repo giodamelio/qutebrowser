@@ -1510,3 +1510,39 @@ def test_moved_window_keeps_history_after_restart(request, quteproc_new,
     assert len(restored) == 1
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()
+
+
+def test_lazy_restore_loads_whole_history_when_shown(request, quteproc_new,
+                                                     short_tmpdir):
+    """A lazily restored background tab loads its history once shown."""
+    args = (_base_args(request.config) + ['--basedir', str(short_tmpdir)] +
+            ['-s', 'session.lazy_restore', 'true'])
+    quteproc_new.start(args)
+    quteproc_new.wait_for(message='Setting session.lazy_restore *')
+    quteproc_new.open_path('data/numbers/1.txt')
+    quteproc_new.open_path('data/numbers/2.txt')
+    quteproc_new.open_path('data/numbers/3.txt', new_tab=True)
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    # The log keeps the first run's lines, which did load 2.txt.
+    restarted = quteproc_new.wait_for(
+        message='Setting session.lazy_restore *')
+    quteproc_new.wait_for_load_finished('data/numbers/3.txt')
+    quteproc_new.ensure_not_logged(
+        after=restarted,
+        message="load status for <* url='http://localhost:*/data/numbers/"
+                "2.txt'>: LoadStatus.success")
+    expected = ['about:blank'] + [
+        quteproc_new.path_to_url(f'data/numbers/{number}.txt')
+        for number in [1, 2]]
+    [window] = quteproc_new.get_session()['windows']
+    assert _urls(window['tabs'][0]) == expected
+
+    quteproc_new.send_cmd(':tab-focus 1')
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    [window] = quteproc_new.get_session()['windows']
+    assert _urls(window['tabs'][0]) == expected
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
