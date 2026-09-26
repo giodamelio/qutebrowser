@@ -486,7 +486,7 @@ class CommandDispatcher:
         except browsertab.WebTabError as e:
             raise cmdutils.CommandError(e)
         newtab = self._tabbed_browser.tabopen(background=False, related=False)
-        sessionfile.deserialize_tab(newtab, history)
+        sessionfile.take_tab_history(newtab, tab, history)
         if not keep:
             # The same tab, moved, so its saved history file stays its own.
             newtab.data.persistent_id = tab.data.persistent_id

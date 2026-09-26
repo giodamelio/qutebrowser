@@ -8,6 +8,7 @@
 The tab serialization is upstream's, moved here from misc/sessions.py.
 """
 
+import copy
 import dataclasses
 import datetime
 import itertools
@@ -296,6 +297,19 @@ def load_lazy_history(tab) -> None:
         message.error(f"Failed to restore the history of "
                       f"{lazy.url.toDisplayString()}: {e}")
         _restore_tab(tab, lazy.data)
+
+
+def take_tab_history(new_tab, tab, history: bytes) -> None:
+    """Load the history bytes tab_history got from another tab."""
+    lazy = tab.data.lazy_history
+    if lazy is None:
+        deserialize_tab(new_tab, history)
+        return
+    # Copied, as the fallback marks entries inactive and a kept tab still
+    # needs its own.
+    new_tab.data.lazy_history = LazyHistory(data=copy.deepcopy(lazy.data),
+                                            history=history)
+    load_lazy_history(new_tab)
 
 
 def restore_tab_history(tab, data: JsonType) -> None:
