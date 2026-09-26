@@ -13,7 +13,7 @@ pytest.importorskip('qutebrowser.qt.webenginecore')
 
 from qutebrowser.api import cmdutils
 from qutebrowser.browser.webengine import profiles
-from qutebrowser.mainwindow import prompt, windowsessions
+from qutebrowser.mainwindow import prompt, tabbedbrowser, windowsessions
 from qutebrowser.misc import (closedwindows, historystore, sessioncommands,
                               sessionfile)
 from qutebrowser.utils import message, objreg, qtutils, usertypes
@@ -512,3 +512,30 @@ def test_confirm_quit_asks(download_managers, fake_ask, count, title, answer,
     assert fake_ask.calls == [{
         'title': title, 'mode': usertypes.PromptMode.yesno,
         'default': False, 'win_id': 4}]
+
+
+def last_tab_close_choice(window, *, transfer=False, by_page=False):
+    return tabbedbrowser.TabbedBrowser._last_tab_close_choice(
+        window, transfer, by_page)
+
+
+def test_page_close_records_without_asking(manager, windows, fake_ask):
+    window, _other = two_windows(manager, windows, manager.default)
+    assert last_tab_close_choice(window, by_page=True) is CloseChoice.window
+    assert not fake_ask.calls
+
+
+def test_page_close_of_only_window_records_nothing(manager, windows,
+                                                   fake_ask):
+    open_window(manager, windows, manager.default, 1)
+    window = open_window(manager, windows, manager.new_session('work'), 2)
+    assert last_tab_close_choice(window, by_page=True) is CloseChoice.plain
+    assert not fake_ask.calls
+
+
+def test_closing_last_tab_yourself_still_asks(manager, windows, fake_ask):
+    window, _other = two_windows(manager, windows, manager.default)
+    fake_ask.answer = 'cancel'
+    assert last_tab_close_choice(window) is CloseChoice.cancel
+    [kwargs] = fake_ask.calls
+    assert kwargs['mode'] is usertypes.PromptMode.select

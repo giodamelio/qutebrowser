@@ -596,6 +596,30 @@ Feature: Saving and loading sessions
     And I wait for "removed: main-window" in the log
     Then session close-reentrant should have 0 windows
 
+  Scenario: A page closing its window's last tab records the window
+    When I clear the log
+    And I set tabs.last_close to close
+    And I run :session-new page-close
+    And the window of session page-close runs :open -w http://localhost:(port)/data/numbers/2.txt
+    And I wait until data/numbers/2.txt is loaded
+    And the newest window runs :jseval --world main window.close()
+    And I wait for "removed: main-window" in the log
+    Then "Asking question *" should not be logged
+    And session page-close should have 1 windows
+    And the session file page-close should contain "closed_windows"
+    And the session file page-close should contain "data/numbers/2.txt"
+
+  Scenario: A page closing the only window of its session records nothing
+    When I clear the log
+    And I set tabs.last_close to close
+    And I run :session-new page-close-single
+    And the window of session page-close-single runs :jseval --world main window.close()
+    And I wait for "removed: main-window" in the log
+    Then "Asking question *" should not be logged
+    And session page-close-single should have 0 windows
+    And the session file page-close-single should not contain "closed_windows"
+    And the session file page-close-single should contain "about:blank"
+
   # Closed-window history
 
   Scenario: Undo brings a window back into its closed session

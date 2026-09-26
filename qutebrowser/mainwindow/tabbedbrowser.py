@@ -463,17 +463,20 @@ class TabbedBrowser(QWidget):
             yes_action()
 
     @staticmethod
-    def _last_tab_close_choice(window, transfer):
+    def _last_tab_close_choice(window, transfer, by_page):
         """How the window closes when its last tab does, unless transferring."""
         if transfer:
             return closedwindows.CloseChoice.plain
         # Every tab is a window here, so asking would ask on every tab close.
+        # Only closes you start ask; a window its page closed is kept in the
+        # closed-window history instead, so :undo --window brings it back.
         preset = (closedwindows.CloseChoice.window
-                 if config.val.tabs.tabs_are_windows else None)
+                  if config.val.tabs.tabs_are_windows or by_page else None)
         # Asked before the tab goes, so cancelling leaves the window as it was.
         return closedwindows.close_choice(window, preset)
 
-    def close_tab(self, tab, *, add_undo=True, new_undo=True, transfer=False):
+    def close_tab(self, tab, *, add_undo=True, new_undo=True, transfer=False,
+                  by_page=False):
         """Close a tab.
 
         Args:
@@ -481,6 +484,7 @@ class TabbedBrowser(QWidget):
             add_undo: Whether the tab close can be undone.
             new_undo: Whether the undo entry should be a new item in the stack.
             transfer: Whether the tab is closing because it is moving to a new window.
+            by_page: Whether the page closed itself with window.close().
         """
         if config.val.tabs.tabs_are_windows or transfer:
             last_close = 'close'
@@ -494,7 +498,7 @@ class TabbedBrowser(QWidget):
 
         if count == 1 and last_close == 'close':
             window = self.window()
-            choice = self._last_tab_close_choice(window, transfer)
+            choice = self._last_tab_close_choice(window, transfer, by_page)
             if choice is closedwindows.CloseChoice.cancel:
                 return
             window.close_choice = choice
@@ -656,7 +660,7 @@ class TabbedBrowser(QWidget):
     def _on_window_close_requested(self, widget):
         """Close a tab with a widget given."""
         try:
-            self.close_tab(widget)
+            self.close_tab(widget, by_page=True)
         except TabDeletedError:
             log.webview.debug("Requested to close {!r} which does not "
                               "exist!".format(widget))
