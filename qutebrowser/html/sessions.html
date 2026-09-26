@@ -40,6 +40,16 @@ th {
 </ul>
 </div>
 {% endif %}
+{% if set_aside %}
+<div id="set-aside">
+<p class="warning">These sessions couldn't be read or restored and were moved aside. To use one again, repair it and rename its directory to an unused session name while qutebrowser isn't running:</p>
+<ul>
+{% for path in set_aside %}
+    <li class="mono">{{ path }}</li>
+{% endfor %}
+</ul>
+</div>
+{% endif %}
 {% for row in saved %}
 <section id="session-{{ row.name }}">
 <h2>{{ row.name }}</h2>

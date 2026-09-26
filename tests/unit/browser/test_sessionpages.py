@@ -293,6 +293,25 @@ def test_sessions_page_unreadable(manager, base_path, message_mock, caplog):
     assert 'id="session-broken"' not in html
 
 
+def test_sessions_page_lists_set_aside_sessions(manager, base_path):
+    (base_path / 'work.broken').mkdir(parents=True)
+    (base_path / 'work.broken' / 'session.yml').write_text('windows: [\n',
+                                                           encoding='utf-8')
+    (base_path / 'notes.broken').write_text('a file', encoding='utf-8')
+
+    html = page(sessionpages.qute_sessions)
+
+    section = element(html, 'div', 'set-aside')
+    assert f'<li class="mono">{base_path / "work.broken"}</li>' in section
+    assert 'notes.broken' not in html
+    assert 'id="session-work.broken"' not in html
+
+
+def test_sessions_page_without_set_aside_sessions(manager):
+    html = page(sessionpages.qute_sessions)
+    assert 'id="set-aside"' not in html
+
+
 def test_sessions_page_counts_bad_tabs_field(manager, base_path):
     write_session(base_path, 'malformed',
                   windows=[{'tabs': None}, {'tabs': 'x'}, {},

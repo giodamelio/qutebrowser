@@ -220,7 +220,8 @@ def qute_sessions(_url: QUrl) -> tuple[str, str]:
                for session in manager.private_sessions()]
     return 'text/html', jinja.render(
         'sessions.html', title='Sessions', saved=saved, private=private,
-        unreadable=manager.unreadable_paths())
+        unreadable=manager.unreadable_paths(),
+        set_aside=manager.set_aside_paths())
 
 
 def open_page(url: str, win_id: int, *, tab: bool, bg: bool,

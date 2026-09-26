@@ -339,6 +339,14 @@ class SessionManager:
         """Get the directories of sessions whose session.yml can't be read."""
         return sorted(self._base_path / name for name in self._unreadable)
 
+    def set_aside_paths(self) -> list[pathlib.Path]:
+        """Get the directories of sessions moved aside for repair (§21.1).
+
+        Read from disk, so ones set aside by an earlier run are included.
+        """
+        return sorted(path for path in self._base_path.iterdir()
+                      if path.name.endswith(_BROKEN_SUFFIX) and path.is_dir())
+
     def get(self, name: str) -> Session:
         """Get a session by name, private or not."""
         if name in self._sessions:
