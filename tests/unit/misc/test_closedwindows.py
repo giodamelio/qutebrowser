@@ -237,7 +237,7 @@ def test_close_session_closes_without_asking(manager, windows,
                                              fake_prompt_queue):
     work = manager.new_session('work')
     first, second = two_windows(manager, windows, work)
-    sessioncommands.close_session(work)
+    sessioncommands.close_session(work, 1)
     assert first.closed and second.closed
     assert first.close_choice is CloseChoice.plain
     assert second.close_choice is CloseChoice.plain
@@ -539,3 +539,100 @@ def test_closing_last_tab_yourself_still_asks(manager, windows, fake_ask):
     assert last_tab_close_choice(window) is CloseChoice.cancel
     [kwargs] = fake_ask.calls
     assert kwargs['mode'] is usertypes.PromptMode.select
+
+
+def test_confirm_close_other_windows_stay(manager, windows, fake_ask,
+                                          download_managers):
+    download_managers[0].start()
+    two_windows(manager, windows, manager.default)
+    assert closedwindows.confirm_close(1, {1})
+    assert not fake_ask.calls
+
+
+def test_confirm_close_last_window(manager, windows, fake_ask,
+                                   download_managers):
+    download_managers[0].start()
+    open_window(manager, windows, manager.default, 1)
+    fake_ask.answer = False
+    assert not closedwindows.confirm_close(1, {1})
+    [kwargs] = fake_ask.calls
+    assert kwargs['win_id'] == 1
+    assert kwargs['mode'] is usertypes.PromptMode.yesno
+
+
+def test_confirm_close_counts_private_windows(manager, windows, fake_ask,
+                                              download_managers):
+    download_managers[0].start()
+    open_window(manager, windows, manager.default, 1)
+    open_window(manager, windows, manager.new_private(), 2)
+    assert closedwindows.confirm_close(1, {1})
+    assert not fake_ask.calls
+
+
+def test_confirm_close_while_shutting_down(manager, windows, fake_ask,
+                                           download_managers):
+    download_managers[0].start()
+    open_window(manager, windows, manager.default, 1)
+    manager.shutdown()
+    assert closedwindows.confirm_close(1, {1})
+    assert not fake_ask.calls
+
+
+@pytest.mark.parametrize('by_page', [False, True])
+def test_last_tab_asks_about_downloads_first(manager, windows, fake_ask,
+                                             download_managers, by_page):
+    download_managers[1].start()
+    window = open_window(manager, windows, manager.default, 1)
+    fake_ask.answer = False
+    assert (last_tab_close_choice(window, by_page=by_page) is
+            CloseChoice.cancel)
+    [kwargs] = fake_ask.calls
+    assert kwargs['mode'] is usertypes.PromptMode.yesno
+
+
+def test_last_tab_downloads_yes_closes(manager, windows, fake_ask,
+                                       download_managers):
+    download_managers[1].start()
+    window = open_window(manager, windows, manager.default, 1)
+    fake_ask.answer = True
+    assert last_tab_close_choice(window) is CloseChoice.plain
+    [kwargs] = fake_ask.calls
+    assert kwargs['mode'] is usertypes.PromptMode.yesno
+
+
+def test_last_tab_transfer_never_asks(manager, windows, fake_ask,
+                                      download_managers):
+    download_managers[1].start()
+    window = open_window(manager, windows, manager.default, 1)
+    assert last_tab_close_choice(window, transfer=True) is CloseChoice.plain
+    assert not fake_ask.calls
+
+
+def test_close_session_asks_before_quitting(manager, windows, fake_ask,
+                                            download_managers,
+                                            fake_prompt_queue):
+    work = manager.new_session('work')
+    first, second = two_windows(manager, windows, work)
+    download_managers[0].start()
+    fake_ask.answer = False
+
+    sessioncommands.close_session(work, 2)
+
+    assert not first.closed and not second.closed
+    assert first.close_choice is None and second.close_choice is None
+    assert 'work' in manager.saved_open_names()
+    assert fake_prompt_queue.aborted_win_ids == []
+    [kwargs] = fake_ask.calls
+    assert kwargs['win_id'] == 2
+
+
+def test_close_session_with_other_windows_doesnt_ask(manager, windows,
+                                                     fake_ask,
+                                                     download_managers):
+    open_window(manager, windows, manager.default, 1)
+    work = manager.new_session('work')
+    window = open_window(manager, windows, work, 2)
+    download_managers[0].start()
+    sessioncommands.close_session(work, 2)
+    assert window.closed
+    assert not fake_ask.calls

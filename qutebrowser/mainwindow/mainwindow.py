@@ -682,6 +682,17 @@ class MainWindow(QWidget):
             e.accept()
             return
 
+        # A close with a preset either asked already or never asks.
+        if (self.close_choice is None and
+                not closedwindows.confirm_close(self.win_id, {self.win_id}) and
+                # Closing its session while the question showed decides
+                # instead, as for the close prompt below.
+                self.close_choice is None):
+            log.destroy.debug(f"Cancelling closing of window {self.win_id}, "
+                              "downloads are running")
+            e.ignore()
+            return
+
         preset, self.close_choice = self.close_choice, None
         choice = closedwindows.close_choice(self, preset)
         override, self.close_choice = self.close_choice, None
@@ -703,7 +714,7 @@ class MainWindow(QWidget):
             # swallowed by Qt rather than re-entering it, so the
             # whole-session close is deferred to run after this returns.
             QTimer.singleShot(0, functools.partial(
-                sessioncommands.close_session, self.session))
+                sessioncommands.close_session, self.session, self.win_id))
             return
 
         e.accept()

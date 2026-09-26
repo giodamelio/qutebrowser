@@ -467,12 +467,14 @@ class TabbedBrowser(QWidget):
         """How the window closes when its last tab does, unless transferring."""
         if transfer:
             return closedwindows.CloseChoice.plain
+        # Asked before the tab goes, so cancelling leaves the window as it was.
+        if not closedwindows.confirm_close(window.win_id, {window.win_id}):
+            return closedwindows.CloseChoice.cancel
         # Every tab is a window here, so asking would ask on every tab close.
         # Only closes you start ask; a window its page closed is kept in the
         # closed-window history instead, so :undo --window brings it back.
         preset = (closedwindows.CloseChoice.window
                   if config.val.tabs.tabs_are_windows or by_page else None)
-        # Asked before the tab goes, so cancelling leaves the window as it was.
         return closedwindows.close_choice(window, preset)
 
     def close_tab(self, tab, *, add_undo=True, new_undo=True, transfer=False,
