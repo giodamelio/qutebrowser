@@ -105,16 +105,23 @@ def test_session_changed(make_statusbar, window, container_registry):
 def test_badges_follow_session(make_statusbar, window, container_registry):
     statusbar = make_statusbar(
         windowsessions.Session('default', private=False))
-    assert statusbar.session_name.text() == 'default'
-    assert statusbar.container_name.text() == 'default'
+    assert statusbar.session_name.text() == 'session: default'
+    assert statusbar.container_name.text() == 'container: default'
+    assert not statusbar.session_name.isHidden()
+    assert statusbar.container_name.isHidden()
 
     container_registry.add('shop', 'yellow')
     window.session = windowsessions.Session('work', private=False,
                                             container='shop')
     statusbar.on_session_changed()
-    assert statusbar.session_name.text() == 'work'
-    assert statusbar.container_name.text() == 'shop'
+    assert statusbar.session_name.text() == 'session: work'
+    assert statusbar.container_name.text() == 'container: shop'
+    assert not statusbar.container_name.isHidden()
     assert 'background-color: #ffff00;' in statusbar.container_name.styleSheet()
+
+    window.session = windowsessions.Session('back', private=False)
+    statusbar.on_session_changed()
+    assert statusbar.container_name.isHidden()
 
 
 def test_badges_in_widgets(make_statusbar, config_stub):
@@ -129,3 +136,27 @@ def test_badges_in_widgets(make_statusbar, config_stub):
     assert hbox.indexOf(statusbar.session_name) == -1
     assert hbox.indexOf(statusbar.container_name) == -1
     assert statusbar.session_name.isHidden()
+
+
+def test_default_container_badge_stays_hidden_on_redraw(make_statusbar,
+                                                        config_stub):
+    statusbar = make_statusbar(
+        windowsessions.Session('default', private=False))
+    config_stub.val.statusbar.widgets = ['container', 'url']
+    # The badge hides itself via setVisible(), not by leaving the hbox, so
+    # visibility is what the brief's hiding code actually controls.
+    assert not statusbar.container_name.isVisible()
+    assert statusbar.container_name.isHidden()
+
+
+def test_container_badge_redraw(make_statusbar, config_stub,
+                                container_registry):
+    container_registry.add('shop', 'yellow')
+    statusbar = make_statusbar(
+        windowsessions.Session('work', private=False, container='shop'))
+    config_stub.val.statusbar.widgets = ['container', 'url']
+    assert not statusbar.container_name.isHidden()
+
+    config_stub.val.statusbar.widgets = ['url']
+    assert statusbar.container_name.isHidden()
+    assert not statusbar.container_name.enabled

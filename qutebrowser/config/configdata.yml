@@ -2209,9 +2209,10 @@ statusbar.widgets:
       name: StatusbarWidget
       valid_values:
         - url: "Current page URL."
-        - session: "Name of the window's session."
-        - container: "Name of the window's container, or `(private)` in a
-          private session."
+        - session: "The window's session, like `session: work`."
+        - container: "The window's container, like `container: shop`, or
+          `container: (private)` in a private session. Hidden for the
+          `default` container."
         - scroll: "Percentage of the current page position like `10%`."
         - scroll_raw: "Raw percentage of the current page position like `10`."
         - history: "Display an arrow when possible to go back/forward in
