@@ -13,7 +13,8 @@ pytest.importorskip('qutebrowser.qt.webenginecore')
 from qutebrowser.api import cmdutils
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.mainwindow import prompt, windowsessions
-from qutebrowser.misc import closedwindows, sessioncommands, sessionfile
+from qutebrowser.misc import (closedwindows, historystore, sessioncommands,
+                              sessionfile)
 from qutebrowser.utils import message, objreg, qtutils, usertypes
 
 
@@ -37,6 +38,7 @@ class FakeWindow:
         self.session = session
         self.close_choice = None
         self.closed = False
+        self.history = {}
 
     def close(self):
         self.closed = True
@@ -94,7 +96,8 @@ def manager(monkeypatch, tmp_path, windows, container_registry, state_config,
         factory=FakeProfile, initializer=lambda _profile: (lambda: None)))
     mgr = windowsessions.SessionManager(
         tmp_path / 'sessions',
-        serialize_window=lambda window: {'win': window.win_id})
+        serialize_window=lambda window: {'win': window.win_id},
+        window_history=lambda window: dict(window.history))
     mgr.load_all()
     monkeypatch.setattr(windowsessions, 'manager', mgr)
     monkeypatch.setattr(sessionfile, 'serialize_window',
@@ -425,3 +428,30 @@ def test_session_restore_window_private(manager, windows):
     with pytest.raises(cmdutils.CommandError,
                        match='private-1 keeps no closed windows'):
         closedwindows.session_restore_window(win_id=1)
+
+
+def test_record_holds_history_until_saved(manager, windows, tmp_path,
+                                          monkeypatch):
+    monkeypatch.setattr(historystore, 'running_version', lambda: '6.11.2')
+    tab_id = historystore.new_id()
+    monkeypatch.setattr(sessionfile, 'serialize_window', lambda window: {
+        'win': window.win_id, 'tabs': [{'id': tab_id, 'history': []}]})
+    work = manager.new_session('work')
+    closing, _other = two_windows(manager, windows, work)
+    closing.history = {tab_id: b'closed window history'}
+
+    closedwindows.record(closing)
+    assert work.held_history == {tab_id: b'closed window history'}
+    manager.window_closing(closing)
+
+    assert work.held_history == {}
+    history_dir = tmp_path / 'sessions' / 'work' / 'history'
+    assert historystore.read(history_dir, tab_id) == b'closed window history'
+
+
+def test_record_holds_nothing_for_private(manager, windows):
+    private = manager.new_private()
+    window = open_window(manager, windows, private, 1)
+    window.history = {historystore.new_id(): b'private'}
+    closedwindows.record(window)
+    assert private.held_history == {}

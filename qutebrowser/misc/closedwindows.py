@@ -124,6 +124,7 @@ def record(window: Any) -> None:
     session = window.session
     if session.private:
         return
+    session.held_history.update(windowsessions.manager.window_history(window))
     session.closed_windows.insert(0, {
         'closed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(
             timespec='milliseconds'),

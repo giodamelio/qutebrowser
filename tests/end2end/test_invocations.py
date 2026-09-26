@@ -27,7 +27,7 @@ from qutebrowser.qt.core import QProcess, QPoint
 from helpers import testutils
 from end2end.fixtures import quteprocess
 from qutebrowser.utils import qtutils, utils, version
-from qutebrowser.misc import checkpyver, ipc
+from qutebrowser.misc import checkpyver, historystore, ipc
 
 
 # For some reason (some floating point rounding differences?), color values are
@@ -1215,6 +1215,22 @@ def _files_containing(root: pathlib.Path, needle: bytes) -> list[str]:
                   if path.is_file() and needle in path.read_bytes())
 
 
+def _history_files_containing(root: pathlib.Path, token: str) -> list[str]:
+    """Get every tab history file below root whose history holds token.
+
+    The files are compressed, so a search of the raw bytes can't see into
+    them, and Chromium's page state also stores URLs as UTF-16.
+    """
+    needles = [token.encode(encoding)
+               for encoding in ['ascii', 'utf-16-le', 'utf-16-be']]
+    found = []
+    for path in root.glob('data/sessions/*/history/*.bin'):
+        data, _version = historystore.decode(path.read_bytes())
+        if any(needle in data for needle in needles):
+            found.append(str(path.relative_to(root)))
+    return sorted(found)
+
+
 @pytest.mark.parametrize('ending', ['quit', 'kill', 'kill-open', 'restart'])
 def test_private_session_leaves_no_trace(request, quteproc_new, short_tmpdir,
                                          ending):
@@ -1263,6 +1279,11 @@ def test_private_session_leaves_no_trace(request, quteproc_new, short_tmpdir,
 
     assert _files_containing(basedir, regular_token.encode('ascii'))
     assert _files_containing(basedir, private_token.encode('ascii')) == []
+    if ending != 'kill':
+        # A kill right after browsing can come before the autosave.
+        assert _history_files_containing(basedir, regular_token)
+    assert _history_files_containing(basedir, private_token) == []
+    assert not list(basedir.glob('data/sessions/private-*'))
 
 
 def _process_exists(pid: int) -> bool:

@@ -16,6 +16,7 @@ import collections
 import textwrap
 import subprocess
 import shutil
+import stat
 
 import pytest
 import pytest_bdd as bdd
@@ -558,6 +559,21 @@ def session_file_not_contains(quteproc, name, text):
     path = pathlib.Path(quteproc.basedir, 'data', 'sessions', name,
                         'session.yml')
     assert text not in path.read_text(encoding='utf-8')
+
+
+@bdd.then(bdd.parsers.parse(
+    'the history files of session {name} should belong to its open tabs'))
+def history_files_match_open_tabs(quteproc, name):
+    """Check a session keeps exactly one private file per open tab."""
+    history_dir = pathlib.Path(quteproc.basedir, 'data', 'sessions', name,
+                               'history')
+    windows = quteproc.get_session()['windows']
+    tab_ids = {tab['id'] for win in windows if win['session'] == name
+               for tab in win['tabs']}
+    files = list(history_dir.glob('*.bin'))
+    assert {path.stem for path in files} == tab_ids
+    for path in files:
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600, path
 
 
 @bdd.then("no crash should happen")

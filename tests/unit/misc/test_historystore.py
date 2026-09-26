@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import logging
 import stat
 import zlib
 
@@ -139,3 +140,12 @@ def test_remove_unreferenced(tmp_path):
 
 def test_remove_unreferenced_without_directory(tmp_path):
     historystore.remove_unreferenced(tmp_path / 'missing', set(), {})
+
+
+def test_remove_unreferenced_warns_when_not_a_directory(tmp_path, caplog):
+    path = tmp_path / 'history'
+    path.write_bytes(b'not a directory')
+    with caplog.at_level(logging.WARNING, 'sessions'):
+        historystore.remove_unreferenced(path, set(), {})
+    assert 'Failed to list' in caplog.text
+    assert str(path) in caplog.text

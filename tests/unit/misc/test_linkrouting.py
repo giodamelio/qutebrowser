@@ -96,7 +96,8 @@ def manager(monkeypatch, tmp_path, windows, container_registry, state_config,
         factory=FakeProfile, initializer=lambda _profile: (lambda: None)))
     mgr = windowsessions.SessionManager(
         tmp_path / 'sessions',
-        serialize_window=lambda window: {'win': window.win_id})
+        serialize_window=lambda window: {'win': window.win_id},
+        window_history=lambda window: {})
     mgr.load_all()
     monkeypatch.setattr(windowsessions, 'manager', mgr)
     return mgr

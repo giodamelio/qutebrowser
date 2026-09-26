@@ -4,6 +4,7 @@
 
 import itertools
 import logging
+import struct
 
 import pytest
 
@@ -12,7 +13,7 @@ pytest.importorskip('qutebrowser.qt.webenginecore')
 from qutebrowser.api import cmdutils
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.mainwindow import mainwindow, windowsessions
-from qutebrowser.misc import containers, sessioncommands, sessionfile
+from qutebrowser.misc import containers, historystore, sessioncommands, sessionfile
 from qutebrowser.utils import objreg, qtutils, usertypes
 
 
@@ -86,7 +87,8 @@ def base_path(tmp_path):
 def manager(registry, monkeypatch, base_path, state_config, fake_save_manager,
            windows, container_registry):
     mgr = windowsessions.SessionManager(
-        base_path, serialize_window=lambda window: {'win': window.win_id})
+        base_path, serialize_window=lambda window: {'win': window.win_id},
+        window_history=lambda window: {})
     mgr.load_all()
     monkeypatch.setattr(windowsessions, 'manager', mgr)
     return mgr
@@ -513,7 +515,8 @@ def test_load_all_moves_broken_default_aside(base_path, state_config,
     base_path.mkdir(parents=True)
     (session_file(base_path, 'default')).write_text('windows: [\n')
     mgr = windowsessions.SessionManager(
-        base_path, serialize_window=lambda window: {'win': window.win_id})
+        base_path, serialize_window=lambda window: {'win': window.win_id},
+        window_history=lambda window: {})
 
     with caplog.at_level(logging.ERROR):
         mgr.load_all()
@@ -539,7 +542,8 @@ def test_load_all_reports_default_broken_conflict(base_path, state_config,
     (session_file(base_path, 'default')).write_text('windows: [\n')
     (session_file(base_path, 'default.broken')).write_text('already here\n')
     mgr = windowsessions.SessionManager(
-        base_path, serialize_window=lambda window: {'win': window.win_id})
+        base_path, serialize_window=lambda window: {'win': window.win_id},
+        window_history=lambda window: {})
 
     with caplog.at_level(logging.ERROR):
         mgr.load_all()
@@ -1007,3 +1011,214 @@ def test_session_close_unlists_session_without_windows(manager, windows,
     with pytest.raises(cmdutils.CommandError,
                        match='Session default is not open'):
         sessioncommands.session_close('default')
+
+
+ID_A = 'a' * 32
+ID_B = 'b' * 32
+
+
+def serialize_with_ids(window):
+    return {'win': window.win_id,
+            'tabs': [{'id': tab_id, 'history': []} for tab_id in window.history]}
+
+
+@pytest.fixture
+def history_manager(registry, monkeypatch, base_path, state_config,
+                    fake_save_manager, windows, container_registry):
+    monkeypatch.setattr(historystore, 'running_version', lambda: '6.11.2')
+    mgr = windowsessions.SessionManager(
+        base_path, serialize_window=serialize_with_ids,
+        window_history=lambda window: dict(window.history))
+    mgr.load_all()
+    monkeypatch.setattr(windowsessions, 'manager', mgr)
+    return mgr
+
+
+def history_window(manager, windows, session, win_id, history):
+    window = FakeWindow(win_id, session)
+    window.history = history
+    windows[win_id] = window
+    manager.add_window(session, win_id)
+    return window
+
+
+def history_files(base_path, name):
+    return sorted(path.name for path in (base_path / name / 'history').iterdir())
+
+
+def count_writes(monkeypatch):
+    written = []
+    real_write = historystore._write
+
+    def write(path, data):
+        written.append(path.name)
+        real_write(path, data)
+
+    monkeypatch.setattr(historystore, '_write', write)
+    return written
+
+
+def test_save_writes_history_files(history_manager, windows, base_path):
+    default = history_manager.default
+    history_window(history_manager, windows, default, 1, {ID_A: b'history a'})
+    history_manager.save(default)
+    assert history_files(base_path, 'default') == [f'{ID_A}.bin']
+    assert historystore.read(base_path / 'default' / 'history',
+                             ID_A) == b'history a'
+    assert saved(base_path, 'default') == [
+        {'win': 1, 'tabs': [{'id': ID_A, 'history': []}]}]
+
+
+def test_save_skips_unchanged_history(history_manager, windows, monkeypatch):
+    default = history_manager.default
+    window = history_window(history_manager, windows, default, 1,
+                            {ID_A: b'a', ID_B: b'b'})
+    history_manager.save(default)
+    written = count_writes(monkeypatch)
+    window.history[ID_B] = b'b changed'
+    history_manager.save(default)
+    assert written == [f'{ID_B}.bin']
+
+
+def test_failed_history_write_keeps_session_yml(history_manager, windows,
+                                                base_path, monkeypatch):
+    default = history_manager.default
+    window = history_window(history_manager, windows, default, 1, {ID_A: b'a'})
+    history_manager.save(default)
+    before = session_file(base_path, 'default').read_text()
+    window.history = {ID_A: b'a', ID_B: b'b'}
+
+    def fail(path, data):
+        raise OSError('disk full')
+
+    monkeypatch.setattr(historystore, '_write', fail)
+    with pytest.raises(sessionfile.SessionFileError, match='disk full'):
+        history_manager.save(default)
+    assert session_file(base_path, 'default').read_text() == before
+    assert history_files(base_path, 'default') == [f'{ID_A}.bin']
+
+
+def test_save_removes_unreferenced_history(history_manager, windows,
+                                           base_path):
+    default = history_manager.default
+    window = history_window(history_manager, windows, default, 1,
+                            {ID_A: b'a', ID_B: b'b'})
+    history_manager.save(default)
+    del window.history[ID_B]
+    history_manager.save(default)
+    assert history_files(base_path, 'default') == [f'{ID_A}.bin']
+    assert set(default.history_digests) == {ID_A}
+
+
+def test_startup_removes_history_files_nothing_refers_to(
+        history_manager, windows, base_path):
+    default = history_manager.default
+    history_window(history_manager, windows, default, 1, {ID_A: b'a'})
+    history_manager.save(default)
+    # A crash after writing history files and before session.yml.
+    history_dir = base_path / 'default' / 'history'
+    historystore.write_changed(history_dir, {ID_B: b'never referenced'}, {})
+    (history_dir / f'{ID_A}.bin.tmp').write_bytes(b'partial')
+
+    fresh = windowsessions.SessionManager(base_path)
+    fresh.load_all()
+
+    assert history_files(base_path, 'default') == [f'{ID_A}.bin']
+    assert fresh.default.saved_windows == [
+        {'win': 1, 'tabs': [{'id': ID_A, 'history': []}]}]
+
+
+def test_closed_window_files_live_while_it_is_kept(history_manager, windows,
+                                                   base_path):
+    default = history_manager.default
+    history_window(history_manager, windows, default, 1, {ID_A: b'a'})
+    default.closed_windows = [{
+        'closed_at': '2026-09-25T10:00:00.000+00:00',
+        'window': {'tabs': [{'id': ID_B, 'history': []}]},
+    }]
+    default.held_history = {ID_B: b'closed window'}
+    history_manager.save(default)
+    assert history_files(base_path, 'default') == [f'{ID_A}.bin', f'{ID_B}.bin']
+    assert default.held_history == {}
+
+    default.closed_windows = []
+    history_manager.save(default)
+    assert history_files(base_path, 'default') == [f'{ID_A}.bin']
+
+
+def test_move_window_moves_history_files(history_manager, windows, base_path):
+    work = history_manager.new_session('work')
+    history_window(history_manager, windows, work, 1, {ID_A: b'stays'})
+    moving = history_window(history_manager, windows, work, 2,
+                            {ID_B: b'moves'})
+    history_manager.save(work)
+    play = history_manager.new_session('play')
+
+    history_manager.move_window(moving, play)
+
+    assert history_files(base_path, 'work') == [f'{ID_A}.bin']
+    assert history_files(base_path, 'play') == [f'{ID_B}.bin']
+    assert historystore.read(base_path / 'play' / 'history', ID_B) == b'moves'
+
+
+def test_move_aside_forgets_history_digests(history_manager, base_path,
+                                            message_mock, caplog):
+    work = history_manager.new_session('work')
+    work.history_digests = {ID_A: historystore.digest(b'a')}
+    with caplog.at_level(logging.ERROR):
+        history_manager.move_aside(work)
+    assert work.history_digests == {}
+    assert (base_path / 'work.broken' / 'session.yml').exists()
+
+
+class _StubTabData:
+
+    def __init__(self, persistent_id):
+        self.persistent_id = persistent_id
+
+
+class _StubTab:
+
+    def __init__(self, persistent_id):
+        self.data = _StubTabData(persistent_id)
+
+
+class _StubTabbedBrowser:
+
+    def __init__(self, tabs):
+        self._tabs = tabs
+
+    def widgets(self):
+        return self._tabs
+
+
+def test_save_keeps_file_when_tab_history_looks_empty(
+        registry, monkeypatch, base_path, state_config, fake_save_manager,
+        windows, container_registry):
+    """QTBUG-117489: a count-0 stub must never overwrite a real file."""
+    monkeypatch.setattr(historystore, 'running_version', lambda: '6.11.2')
+    manager = windowsessions.SessionManager(
+        base_path, serialize_window=serialize_with_ids,
+        window_history=sessionfile.window_history)
+    manager.load_all()
+    monkeypatch.setattr(windowsessions, 'manager', manager)
+    default = manager.default
+
+    window = FakeWindow(1, default)
+    window.history = {ID_A: None}
+    window.tabbed_browser = _StubTabbedBrowser([_StubTab(ID_A)])
+    windows[1] = window
+    manager.add_window(default, 1)
+
+    real = struct.pack('>IIi', 4, 2, 0) + b'real history'
+    monkeypatch.setattr(sessionfile, 'tab_history', lambda tab: real)
+    manager.save(default)
+    path = base_path / 'default' / 'history' / f'{ID_A}.bin'
+    before = path.read_bytes()
+
+    stub = struct.pack('>IIi', 4, 0, -1)
+    monkeypatch.setattr(sessionfile, 'tab_history', lambda tab: stub)
+    manager.save(default)
+
+    assert path.read_bytes() == before
+    assert history_files(base_path, 'default') == [f'{ID_A}.bin']

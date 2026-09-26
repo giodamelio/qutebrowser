@@ -44,7 +44,8 @@ def manager(container_registry, profile_registry, base_path, state_config,
             fake_save_manager, monkeypatch):
     monkeypatch.setattr(objreg, 'window_registry', {})
     mgr = windowsessions.SessionManager(
-        base_path, serialize_window=lambda window: {'win': window.win_id})
+        base_path, serialize_window=lambda window: {'win': window.win_id},
+        window_history=lambda window: {})
     mgr.load_all()
     # As in windowsessions.init, so renames that leave sessions behind adopt
     # the old name.
