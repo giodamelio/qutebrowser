@@ -8,7 +8,7 @@ import types
 from unittest import mock
 
 import pytest
-from qutebrowser.qt.core import QByteArray, QUrl
+from qutebrowser.qt.core import QUrl
 
 from qutebrowser.mainwindow import tabbedbrowser
 from qutebrowser.misc import historystore
@@ -56,7 +56,7 @@ def test_undo_loads_page_when_saved_history_is_corrupt(
         tabopen=lambda background, idx: tab)
     tab_id = historystore.new_id()
     browser.undo_stack.append([tabbedbrowser._UndoEntry(
-        url=QUrl('https://example.org/'), history=QByteArray(b'corrupt'),
+        url=QUrl('https://example.org/'), history=historystore.Snapshot(b'corrupt'),
         index=0, pinned=False, tab_id=tab_id,
         tab={'id': tab_id, 'history': [
             {'url': 'https://example.org/', 'title': 'page',

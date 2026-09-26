@@ -589,7 +589,7 @@ def test_restore_window_lazy_shows_the_last_active_tab(fake_mainwindows,
 def undo_entry(tab_id, url, *, index=0, pinned=False,
                history=b'closed history'):
     return tabbedbrowser._UndoEntry(
-        url=QUrl(url), history=QByteArray(history), index=index,
+        url=QUrl(url), history=historystore.Snapshot(history), index=index,
         pinned=pinned, created_at=datetime.datetime(2026, 9, 25, 12, 0, 0),
         tab_id=tab_id, tab=tab_data(tab_id, url))
 
@@ -658,7 +658,7 @@ def test_restore_window_rebuilds_closed_tabs(fake_mainwindows, histories,
     assert [[entry.tab_id for entry in group] for group in stack] == [
         [missing], [kept]]
     [entry] = stack[-1]
-    assert entry.history == QByteArray(b'closed history')
+    assert entry.history == b'closed history'
     assert entry.url == QUrl('https://kept.example/')
     assert (entry.index, entry.pinned) == (1, True)
     assert entry.tab == tab_data(kept, 'https://kept.example/')
@@ -668,6 +668,35 @@ def test_restore_window_rebuilds_closed_tabs(fake_mainwindows, histories,
     assert stack[0][0].history is None
     assert message_mock.getmsg(usertypes.MessageLevel.warning).text == (
         "1 tab restored without back history: history file missing")
+
+
+def test_save_hashes_an_unchanged_closed_tab_once(fake_mainwindows,
+                                                  histories, tmp_path,
+                                                  monkeypatch):
+    """A closed tab's bytes never change, so every autosave needn't hash them."""
+    tab_id = historystore.new_id()
+    histories[tab_id] = b'closed history'
+    window = restore({'tabs': [], 'closed_tabs': [
+        [closed_item(tab_id, 'https://a.example/',
+                     '2026-09-25T10:00:00.000+00:00')]]})
+    hashed = []
+    real_digest = historystore.digest
+
+    def digest(data):
+        hashed.append(bytes(data))
+        return real_digest(data)
+
+    monkeypatch.setattr(historystore, 'digest', digest)
+    monkeypatch.setattr(historystore, 'running_version', lambda: '6.11.2')
+    digests = {}
+    historystore.write_changed(tmp_path, sessionfile.window_history(window),
+                               digests)
+    assert hashed == [b'closed history']
+
+    hashed.clear()
+    historystore.write_changed(tmp_path, sessionfile.window_history(window),
+                               digests)
+    assert hashed == []
 
 
 def test_restore_window_closed_tab_without_back_history_is_silent(

@@ -16,7 +16,7 @@ from typing import (
 from collections.abc import Mapping, MutableMapping, MutableSequence
 
 from qutebrowser.qt.widgets import QSizePolicy, QWidget, QApplication
-from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QTimer, QUrl, QPoint, QByteArray
+from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QTimer, QUrl, QPoint
 
 from qutebrowser.config import config
 from qutebrowser.keyinput import modeman
@@ -24,7 +24,7 @@ from qutebrowser.mainwindow import tabwidget, mainwindow, windowsessions
 from qutebrowser.browser import signalfilter, browsertab, history
 from qutebrowser.utils import (log, usertypes, utils, qtutils,
                                urlutils, message, jinja, version)
-from qutebrowser.misc import quitter, objects, closedwindows, sessionfile
+from qutebrowser.misc import quitter, objects, closedwindows, historystore, sessionfile
 
 
 @dataclasses.dataclass
@@ -559,7 +559,7 @@ class TabbedBrowser(QWidget):
                 pass  # special URL
             else:
                 entry = _UndoEntry(url=url,
-                                   history=QByteArray(history_data),
+                                   history=historystore.Snapshot(history_data),
                                    index=idx,
                                    pinned=tab.data.pinned,
                                    tab_id=tab.data.persistent_id,
@@ -617,7 +617,7 @@ class TabbedBrowser(QWidget):
                 sessionfile.restore_tab_history(newtab, entry.tab)
             else:
                 try:
-                    newtab.history.private_api.deserialize(entry.history)
+                    sessionfile.deserialize_tab(newtab, entry.history)
                 except OSError as e:
                     # Bytes read from a file after a restart are only loaded
                     # now, long after the window was restored.
