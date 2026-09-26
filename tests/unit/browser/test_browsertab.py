@@ -2,10 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import types
+
 import pytest
 
 from qutebrowser.qt.core import QUrl
-from qutebrowser.browser import browsertab
+from qutebrowser.api import cmdutils
+from qutebrowser.browser import browsertab, commands
+from qutebrowser.misc import historystore
 
 
 class TestAction:
@@ -31,3 +35,44 @@ class TestAction:
             match=f"{member} is not a valid web action!",
         ):
             web_tab.action.run_string(member)
+
+
+def test_tab_data_gets_a_fresh_persistent_id():
+    first, second = browsertab.TabData(), browsertab.TabData()
+    assert historystore.is_valid_id(first.persistent_id)
+    assert first.persistent_id != second.persistent_id
+
+
+def _raise_web_tab_error(tab):
+    raise browsertab.WebTabError("boom")
+
+
+def test_tab_give_wraps_history_error(config_stub, monkeypatch):
+    dispatcher = commands.CommandDispatcher(
+        0, types.SimpleNamespace(session=object()))
+    target = types.SimpleNamespace(session=object(), is_private=False)
+    monkeypatch.setattr(commands.objreg, 'window_registry', {1: target})
+    monkeypatch.setattr(commands.objreg, 'get', lambda *args, **kwargs: target)
+    monkeypatch.setattr(commands.windowsessions, 'check_same_profile',
+                        lambda a, b: None)
+    monkeypatch.setattr(dispatcher, '_current_widget', lambda: object())
+    monkeypatch.setattr(commands.sessionfile, 'tab_history',
+                        _raise_web_tab_error)
+
+    with pytest.raises(cmdutils.CommandError):
+        dispatcher.tab_give(win_id=1)
+
+
+def test_tab_take_wraps_history_error(config_stub, monkeypatch):
+    dispatcher = commands.CommandDispatcher(
+        0, types.SimpleNamespace(session=object()))
+    other = types.SimpleNamespace(session=object())
+    monkeypatch.setattr(dispatcher, '_resolve_tab_index',
+                        lambda index: (other, object()))
+    monkeypatch.setattr(commands.windowsessions, 'check_same_profile',
+                        lambda a, b: None)
+    monkeypatch.setattr(commands.sessionfile, 'tab_history',
+                        _raise_web_tab_error)
+
+    with pytest.raises(cmdutils.CommandError):
+        dispatcher.tab_take('1/1')

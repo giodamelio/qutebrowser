@@ -1619,6 +1619,7 @@ Feature: Tab management
                 history:
                 - url: http://localhost:*/data/numbers/2.txt
               - history:
+                - url: about:blank
                 - url: http://localhost:*/data/numbers/1.txt
             """
 

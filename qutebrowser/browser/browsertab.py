@@ -30,7 +30,7 @@ from qutebrowser.keyinput import modeman
 from qutebrowser.config import config, websettings
 from qutebrowser.utils import (utils, objreg, usertypes, log, qtutils,
                                urlutils, message, jinja)
-from qutebrowser.misc import miscwidgets, objects, sessionfile
+from qutebrowser.misc import historystore, miscwidgets, objects, sessionfile
 from qutebrowser.browser import eventfilter, inspector
 from qutebrowser.qt import sip
 
@@ -120,6 +120,9 @@ class TabData:
         netrc_used: Whether netrc authentication was performed.
         input_mode: current input mode for the tab.
         splitter: InspectorSplitter used to show inspector inside the tab.
+        persistent_id: The tab's id in session files. It stays with the tab
+                       when it moves to another window or session, and names
+                       its history file.
     """
 
     keep_icon: bool = False
@@ -133,6 +136,7 @@ class TabData:
     input_mode: usertypes.KeyMode = usertypes.KeyMode.normal
     last_navigation: usertypes.NavigationRequest | None = None
     splitter: miscwidgets.InspectorSplitter | None = None
+    persistent_id: str = dataclasses.field(default_factory=historystore.new_id)
 
     def should_show_icon(self) -> bool:
         return (config.val.tabs.favicons.show == 'always' or
