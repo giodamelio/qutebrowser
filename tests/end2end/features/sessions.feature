@@ -678,3 +678,34 @@ Feature: Saving and loading sessions
           - active: true
             url: http://localhost:*/data/numbers/7.txt
       """
+
+  Scenario: Undoing a closed window brings back its closed tabs
+    When I clear the log
+    And I run :session-new undo-closed-tabs
+    And the window of session undo-closed-tabs runs :open -w http://localhost:(port)/data/numbers/6.txt
+    And I wait until data/numbers/6.txt is loaded
+    And the newest window runs :open -t http://localhost:(port)/data/numbers/8.txt
+    And I wait until data/numbers/8.txt is loaded
+    And the newest window runs :open http://localhost:(port)/data/numbers/9.txt
+    And I wait until data/numbers/9.txt is loaded
+    And the newest window runs :tab-close
+    And the newest window runs :window-close --no-prompt
+    And I wait for "removed: main-window" in the log
+    And I run :undo -w
+    And I wait until data/numbers/6.txt is loaded
+    And the newest window runs :undo
+    And I wait until data/numbers/9.txt is loaded
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+      - session: undo-closed-tabs
+      - session: undo-closed-tabs
+        tabs:
+        - history:
+          - url: http://localhost:*/data/numbers/6.txt
+        - history:
+          - url: http://localhost:*/data/numbers/8.txt
+          - active: true
+            url: http://localhost:*/data/numbers/9.txt
+      """

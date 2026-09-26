@@ -1546,3 +1546,30 @@ def test_lazy_restore_loads_whole_history_when_shown(request, quteproc_new,
     assert _urls(window['tabs'][0]) == expected
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()
+
+
+def test_undo_after_restart_reopens_tab_with_history(request, quteproc_new,
+                                                     short_tmpdir):
+    """Tabs closed before a restart come back with :undo (§21.3)."""
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
+    quteproc_new.start(args)
+    quteproc_new.open_path('data/numbers/1.txt')
+    quteproc_new.open_path('data/numbers/2.txt')
+    [window] = quteproc_new.get_session()['windows']
+    expected = _urls(window['tabs'][0])
+    closed_id = window['tabs'][0]['id']
+    quteproc_new.open_path('data/numbers/3.txt', new_tab=True)
+    quteproc_new.send_cmd(':tab-focus 1')
+    quteproc_new.send_cmd(':tab-close')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    quteproc_new.wait_for_load_finished('data/numbers/3.txt')
+    quteproc_new.send_cmd(':undo')
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    [window] = quteproc_new.get_session()['windows']
+    assert (closed_id, expected) in [
+        (tab['id'], _urls(tab)) for tab in window['tabs']]
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()

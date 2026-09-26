@@ -16,7 +16,7 @@ from typing import (
 from collections.abc import Mapping, MutableMapping, MutableSequence
 
 from qutebrowser.qt.widgets import QSizePolicy, QWidget, QApplication
-from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QTimer, QUrl, QPoint
+from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QTimer, QUrl, QPoint, QByteArray
 
 from qutebrowser.config import config
 from qutebrowser.keyinput import modeman
@@ -24,7 +24,7 @@ from qutebrowser.mainwindow import tabwidget, mainwindow, windowsessions
 from qutebrowser.browser import signalfilter, browsertab, history
 from qutebrowser.utils import (log, usertypes, utils, qtutils,
                                urlutils, message, jinja, version)
-from qutebrowser.misc import quitter, objects, closedwindows
+from qutebrowser.misc import quitter, objects, closedwindows, sessionfile
 
 
 @dataclasses.dataclass
@@ -38,6 +38,9 @@ class _UndoEntry:
     pinned: bool
     created_at: datetime.datetime = dataclasses.field(
         default_factory=datetime.datetime.now)
+    tab_id: str | None = None
+    # The tab's readable session data, saved with the :undo stack.
+    tab: dict[str, Any] | None = None
 
 
 UndoStackType: TypeAlias = MutableSequence[MutableSequence[_UndoEntry]]
@@ -535,27 +538,32 @@ class TabbedBrowser(QWidget):
 
         tab.pending_removal = True
 
-        if tab.url().isEmpty():
+        lazy = tab.data.lazy_history
+        # A lazily restored tab has no URL until it is first shown.
+        url = tab.url() if lazy is None else lazy.url
+        if url.isEmpty():
             # There are some good reasons why a URL could be empty
             # (target="_blank" with a download, see [1]), so we silently ignore
             # this.
             # [1] https://github.com/qutebrowser/qutebrowser/issues/163
             pass
-        elif not tab.url().isValid():
+        elif not url.isValid():
             # We display a warning for URLs which are not empty but invalid -
             # but we don't return here because we want the tab to close either
             # way.
-            urlutils.invalid_url_error(tab.url(), "saving tab")
+            urlutils.invalid_url_error(url, "saving tab")
         elif add_undo:
             try:
-                history_data = tab.history.private_api.serialize()
+                history_data = sessionfile.tab_history(tab)
             except browsertab.WebTabError:
                 pass  # special URL
             else:
-                entry = _UndoEntry(url=tab.url(),
-                                   history=history_data,
+                entry = _UndoEntry(url=url,
+                                   history=QByteArray(history_data),
                                    index=idx,
-                                   pinned=tab.data.pinned)
+                                   pinned=tab.data.pinned,
+                                   tab_id=tab.data.persistent_id,
+                                   tab=sessionfile.serialize_tab(tab, False))
                 if new_undo or not self.undo_stack:
                     self.undo_stack.append([entry])
                 else:
@@ -601,7 +609,21 @@ class TabbedBrowser(QWidget):
             else:
                 newtab = self.tabopen(background=False, idx=entry.index)
 
-            newtab.history.private_api.deserialize(entry.history)
+            if entry.tab_id is not None:
+                # The same tab again, so its history file stays its own.
+                newtab.data.persistent_id = entry.tab_id
+            if entry.history is None:
+                # Its history file couldn't be used after a restart (§21.5).
+                sessionfile.restore_tab_history(newtab, entry.tab)
+            else:
+                try:
+                    newtab.history.private_api.deserialize(entry.history)
+                except OSError as e:
+                    # Bytes read from a file after a restart are only loaded
+                    # now, long after the window was restored.
+                    message.error(f"Failed to restore the history of "
+                                  f"{entry.url.toDisplayString()}: {e}")
+                    sessionfile.restore_tab_history(newtab, entry.tab)
             newtab.set_pinned(entry.pinned)
             newtab.setFocus()
 

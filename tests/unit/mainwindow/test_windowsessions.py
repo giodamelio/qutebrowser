@@ -1227,6 +1227,7 @@ class _StubTabbedBrowser:
 
     def __init__(self, tabs):
         self._tabs = tabs
+        self.undo_stack = []
 
     def widgets(self):
         return self._tabs

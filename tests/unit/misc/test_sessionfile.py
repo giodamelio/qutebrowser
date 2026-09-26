@@ -3,12 +3,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import collections
+import datetime
 import logging
+import struct
 
 import pytest
 from qutebrowser.qt.core import QByteArray, QUrl
 
-from qutebrowser.mainwindow import mainwindow, windowsessions
+from qutebrowser.mainwindow import mainwindow, windowsessions, tabbedbrowser
 from qutebrowser.misc import historystore, sessionfile
 from qutebrowser.utils import objreg, usertypes
 
@@ -559,3 +561,161 @@ def test_restore_window_lazy_shows_the_last_active_tab(fake_mainwindows,
     assert second.data.lazy_history is None
     assert second.history.private_api.deserialized == b'second'
     assert first.data.lazy_history.history == b'first'
+
+
+def undo_entry(tab_id, url, *, index=0, pinned=False,
+               history=b'closed history'):
+    return tabbedbrowser._UndoEntry(
+        url=QUrl(url), history=QByteArray(history), index=index,
+        pinned=pinned, created_at=datetime.datetime(2026, 9, 25, 12, 0, 0),
+        tab_id=tab_id, tab=tab_data(tab_id, url))
+
+
+def test_serialize_closed_tabs_newest_first():
+    first, second, third = (historystore.new_id() for _ in range(3))
+    stack = collections.deque([
+        [undo_entry(first, 'https://a.example/')],
+        [undo_entry(second, 'https://b.example/', index=2, pinned=True),
+         undo_entry(third, 'https://c.example/', index=3)],
+    ])
+
+    closed = sessionfile._serialize_closed_tabs(stack)
+
+    assert [[item['id'] for item in group] for group in closed] == [
+        [second, third], [first]]
+    item = closed[0][0]
+    assert (item['index'], item['pinned']) == (2, True)
+    assert item['tab'] == tab_data(second, 'https://b.example/')
+    assert (datetime.datetime.fromisoformat(item['closed_at']) ==
+            datetime.datetime(2026, 9, 25, 12, 0, 0).astimezone())
+
+
+def test_window_history_includes_closed_tabs():
+    tabbed_browser = FakeTabbedBrowser()
+    tab = tabbed_browser.tabopen(background=False)
+    closed_id, lost_id, stub_id = (historystore.new_id() for _ in range(3))
+    lost = undo_entry(lost_id, 'https://lost.example/')
+    lost.history = None
+    # QTBUG-117489's count-0 stub, from a tab closed mid-load.
+    stub = undo_entry(stub_id, 'https://stub.example/',
+                      history=struct.pack('>IIi', 4, 0, 0))
+    tabbed_browser.undo_stack.append(
+        [undo_entry(closed_id, 'https://a.example/'), lost, stub])
+    window = FakeMainWindow(geometry=None, session=None)
+    window.tabbed_browser = tabbed_browser
+    assert sessionfile.window_history(window) == {
+        tab.data.persistent_id: b'live history', closed_id: b'closed history'}
+
+
+def closed_item(tab_id, url, closed_at, *, index=0, pinned=False,
+                back=False):
+    tab = tab_data(tab_id, url)
+    if back:
+        tab['history'].insert(0, {'url': 'https://back.example/',
+                                  'title': 'back'})
+    return {'id': tab_id, 'index': index, 'pinned': pinned,
+            'closed_at': closed_at, 'tab': tab}
+
+
+def test_restore_window_rebuilds_closed_tabs(fake_mainwindows, histories,
+                                             message_mock, caplog):
+    open_id, kept, missing = (historystore.new_id() for _ in range(3))
+    histories.update({open_id: b'open', kept: b'closed history'})
+    data = {'tabs': [tab_data(open_id)], 'closed_tabs': [
+        [closed_item(kept, 'https://kept.example/',
+                     '2026-09-25T10:00:00.000+00:00', index=1, pinned=True)],
+        [closed_item(missing, 'https://missing.example/',
+                     '2026-09-25T09:00:00.000+00:00', back=True)],
+    ]}
+
+    with caplog.at_level(logging.WARNING):
+        window = restore(data)
+
+    stack = window.tabbed_browser.undo_stack
+    assert [[entry.tab_id for entry in group] for group in stack] == [
+        [missing], [kept]]
+    [entry] = stack[-1]
+    assert entry.history == QByteArray(b'closed history')
+    assert entry.url == QUrl('https://kept.example/')
+    assert (entry.index, entry.pinned) == (1, True)
+    assert entry.tab == tab_data(kept, 'https://kept.example/')
+    assert entry.created_at == datetime.datetime(
+        2026, 9, 25, 10, tzinfo=datetime.timezone.utc).astimezone().replace(
+            tzinfo=None)
+    assert stack[0][0].history is None
+    assert message_mock.getmsg(usertypes.MessageLevel.warning).text == (
+        "1 tab restored without back history: history file missing")
+
+
+def test_restore_window_closed_tab_without_back_history_is_silent(
+        fake_mainwindows, message_mock):
+    missing = historystore.new_id()
+    window = restore({'tabs': [], 'closed_tabs': [
+        [closed_item(missing, 'https://missing.example/',
+                     '2026-09-25T09:00:00.000+00:00')],
+        [closed_item(None, 'https://no-id.example/',
+                     '2026-09-25T08:00:00.000+00:00')],
+    ]})
+    [[missing_entry], [no_id_entry]] = reversed(
+        window.tabbed_browser.undo_stack)
+    assert missing_entry.history is None
+    assert historystore.is_valid_id(no_id_entry.tab_id)
+    assert not message_mock.messages
+
+
+def test_restore_window_caps_closed_tabs(fake_mainwindows, histories,
+                                         monkeypatch):
+    monkeypatch.setattr(FakeTabbedBrowser, 'undo_stack_size', 1)
+    newest, oldest = historystore.new_id(), historystore.new_id()
+    histories.update({newest: b'newest', oldest: b'oldest'})
+    window = restore({'tabs': [], 'closed_tabs': [
+        [closed_item(newest, 'https://new.example/',
+                     '2026-09-25T10:00:00.000+00:00')],
+        [closed_item(oldest, 'https://old.example/',
+                     '2026-09-25T09:00:00.000+00:00')],
+    ]})
+    assert [[entry.tab_id for entry in group]
+            for group in window.tabbed_browser.undo_stack] == [[newest]]
+
+
+@pytest.mark.parametrize('closed_tabs', [
+    5,
+    [5],
+    [[{'id': 'a' * 32}]],
+    [[{'id': 'a' * 32, 'index': 'x', 'pinned': False,
+       'closed_at': '2026-09-25T10:00:00.000+00:00', 'tab': tab_data(None)}]],
+    [[{'id': 'a' * 32, 'index': 0, 'pinned': False, 'closed_at': 'never',
+       'tab': tab_data(None)}]],
+    [[{'id': 'a' * 32, 'index': 0, 'pinned': False,
+       'closed_at': '2026-09-25T10:00:00.000+00:00',
+       'tab': {'history': [{'url': 'https://example.org/'}]}}]],
+    [[{'id': 'a' * 32, 'index': 0, 'pinned': False,
+       'closed_at': '2026-09-25T10:00:00.000+00:00',
+       'tab': {'history': [{'url': 5, 'title': 'page'}]}}]],
+    [[{'id': 'a' * 32, 'index': 0, 'pinned': False,
+       'closed_at': '2026-09-25T10:00:00.000+00:00',
+       'tab': {'history': 'x'}}]],
+])
+def test_restore_window_invalid_closed_tabs(fake_mainwindows, closed_tabs,
+                                            message_mock, caplog):
+    session = windowsessions.Session('work', private=False)
+    with caplog.at_level(logging.WARNING), pytest.raises(
+            sessionfile.SessionFileError, match='work'):
+        sessionfile.restore_window({'tabs': [], 'closed_tabs': closed_tabs},
+                                   session, show=False)
+    [window] = fake_mainwindows
+    assert window.is_deleted
+
+
+def test_restore_window_closed_tab_with_taken_id_gets_new_one(
+        fake_mainwindows, histories):
+    tab_id = historystore.new_id()
+    histories[tab_id] = b'open'
+    window = restore({'tabs': [tab_data(tab_id)], 'closed_tabs': [
+        [closed_item(tab_id, 'https://closed.example/',
+                     '2026-09-25T10:00:00.000+00:00')],
+    ]})
+    [[entry]] = window.tabbed_browser.undo_stack
+    assert entry.tab_id != tab_id
+    assert entry.history is None
+    assert entry.tab['id'] == entry.tab_id

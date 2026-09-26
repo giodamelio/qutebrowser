@@ -9,6 +9,7 @@ The tab serialization is upstream's, moved here from misc/sessions.py.
 """
 
 import dataclasses
+import datetime
 import itertools
 import pathlib
 import struct
@@ -231,6 +232,25 @@ def serialize_tab(tab, active):
     return data
 
 
+def _serialize_closed_tabs(undo_stack) -> list[list[JsonType]]:
+    """Serialize a window's :undo stack, newest first (§21.3).
+
+    The stack is a deque capped by tabs.undo_stack_size, so it already
+    holds only what that setting keeps.
+    """
+    return [
+        [{
+            'id': entry.tab_id,
+            'index': entry.index,
+            'pinned': entry.pinned,
+            'closed_at': entry.created_at.astimezone(
+                datetime.timezone.utc).isoformat(timespec='milliseconds'),
+            'tab': entry.tab,
+        } for entry in group]
+        for group in reversed(undo_stack)
+    ]
+
+
 def serialize_window(window) -> JsonType:
     """Serialize a live MainWindow into the session file's window format."""
     tabbed_browser = window.tabbed_browser
@@ -243,6 +263,9 @@ def serialize_window(window) -> JsonType:
         serialize_tab(tab, i == tabbed_browser.widget.currentIndex())
         for i, tab in enumerate(tabbed_browser.widgets())
     ]
+    closed_tabs = _serialize_closed_tabs(tabbed_browser.undo_stack)
+    if closed_tabs:
+        data['closed_tabs'] = closed_tabs
     return data
 
 
@@ -275,6 +298,65 @@ def load_lazy_history(tab) -> None:
         _restore_tab(tab, lazy.data)
 
 
+def restore_tab_history(tab, data: JsonType) -> None:
+    """Load only a tab's current page from its readable session data."""
+    _restore_tab(tab, data)
+
+
+def _closed_time(value: Any) -> datetime.datetime:
+    """Turn a saved closed_at into the naive local time :undo uses."""
+    if not isinstance(value, datetime.datetime):
+        # fromisoformat only takes a trailing 'Z' from Python 3.11 on.
+        value = datetime.datetime.fromisoformat(
+            str(value).replace('Z', '+00:00'))
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=datetime.timezone.utc)
+    return value.astimezone().replace(tzinfo=None)
+
+
+def _restore_closed_tabs(data: JsonType, session, used_ids: set[str],
+                         problems: list[str]) -> list[list[Any]]:
+    """Rebuild a window's :undo stack, oldest first, from closed_tabs."""
+    # tabbedbrowser imports this module.
+    from qutebrowser.mainwindow import tabbedbrowser
+    groups = []
+    for group in data.get('closed_tabs', []):
+        entries = []
+        for item in group:
+            index, pinned = item['index'], item['pinned']
+            if not isinstance(index, int) or not isinstance(pinned, bool):
+                raise TypeError(f"invalid closed tab {item!r}")
+            # Checked now, as restore_window checks open tabs: :undo can't
+            # fail the window any more.
+            for histentry in item['tab']['history']:
+                if (not isinstance(histentry['url'], str) or
+                        not isinstance(histentry['title'], str)):
+                    raise TypeError(f"invalid closed tab {item!r}")
+            tab_id = _claim_id(item.get('id'), used_ids)
+            history = None
+            tab_problems: list[str] = []
+            if tab_id is None:
+                tab_id = historystore.new_id()
+                tab_problems.append(_NO_ID)
+            else:
+                history = _read_history(session, tab_id, tab_problems)
+            tab_data = dict(item['tab'], id=tab_id)
+            # As for open tabs in restore_window.
+            if len(tab_data['history']) > 1:
+                problems += tab_problems
+            entries.append(tabbedbrowser._UndoEntry(  # pylint: disable=protected-access
+                url=_entry_url(_active_entry(tab_data['history'])),
+                history=None if history is None else QByteArray(history),
+                index=index,
+                pinned=pinned,
+                created_at=_closed_time(item['closed_at']),
+                tab_id=tab_id,
+                tab=tab_data))
+        groups.append(entries)
+    groups.reverse()
+    return groups
+
+
 _HISTORY_HEADER = struct.Struct('>IIi')
 
 
@@ -294,15 +376,21 @@ def has_history(data: bytes) -> bool:
 
 
 def window_history(window) -> dict[str, bytes]:
-    """Get the history bytes of a window's tabs, by tab id.
+    """Get the history bytes of a window's open and closed tabs, by tab id.
 
     A tab whose history can't be serialized (e.g. an internal page) keeps
     its readable history but gets no file. So does a tab whose bytes
     describe no entries (see `has_history`).
     """
     from qutebrowser.browser import browsertab
+    tabbed_browser = window.tabbed_browser
     history = {}
-    for tab in window.tabbed_browser.widgets():
+    for group in tabbed_browser.undo_stack:
+        for entry in group:
+            # None for a tab restored without its history file.
+            if entry.history is not None and has_history(bytes(entry.history)):
+                history[entry.tab_id] = bytes(entry.history)
+    for tab in tabbed_browser.widgets():
         try:
             data = tab_history(tab)
         except browsertab.WebTabError:
@@ -355,11 +443,13 @@ def _claim_id(value: Any, used_ids: set[str]) -> str | None:
 
 
 def _live_ids(session) -> set[str]:
-    """Get the ids of the tabs in a session's open windows."""
+    """Get the ids of the open and closed tabs of a session's open windows."""
     ids = set()
     for win_id in session.windows:
         tabbed_browser = objreg.window_registry[win_id].tabbed_browser
         ids.update(tab.data.persistent_id for tab in tabbed_browser.widgets())
+        ids.update(entry.tab_id for group in tabbed_browser.undo_stack
+                   for entry in group)
     return ids
 
 
@@ -518,6 +608,8 @@ def restore_window(data: JsonType, session, *,  # noqa: C901
                 tab_to_focus = i
             if new_tab.data.pinned:
                 new_tab.set_pinned(True)
+        tabbed_browser.undo_stack.extend(
+            _restore_closed_tabs(data, session, used_ids, problems))
     # OSError: QtWebEngine refused bytes of its own version, which only
     # a corrupt file can explain (§21.5).
     except (KeyError, TypeError, ValueError, AttributeError, OSError) as e:
