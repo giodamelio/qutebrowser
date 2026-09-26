@@ -355,6 +355,29 @@ def test_referenced_ids():
     assert sessionfile.referenced_ids(data) == set(ids)
 
 
+@pytest.mark.parametrize('window', [
+    'junk',
+    {'tabs': {'first': {'id': 'a' * 32}}},
+    {'tabs': [{'id': 'a' * 32}, 5]},
+    {'tabs': [], 'closed_tabs': ['junk']},
+    {'tabs': [], 'closed_tabs': [[{'id': 'a' * 32}, 'junk']]},
+])
+def test_referenced_ids_strict(window):
+    for data in [sessionfile.SessionData(windows=[window]),
+                 sessionfile.SessionData(closed_windows=[{'window': window}])]:
+        with pytest.raises(ValueError):
+            sessionfile.referenced_ids(data, strict=True)
+
+
+def test_referenced_ids_strict_accepts_valid_shapes():
+    ids = [historystore.new_id() for _ in range(3)]
+    data = sessionfile.SessionData(
+        windows=[{'tabs': [{'id': ids[0]}, {'id': '../evil'}]}],
+        closed_windows=[{'window': {'tabs': [{'id': ids[1]}],
+                                    'closed_tabs': [[{'id': ids[2]}]]}}])
+    assert sessionfile.referenced_ids(data, strict=True) == set(ids)
+
+
 def test_restore_window_loads_history_bytes(fake_mainwindows, histories):
     tab_id = historystore.new_id()
     histories[tab_id] = b'saved history'
