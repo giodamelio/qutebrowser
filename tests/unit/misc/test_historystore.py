@@ -132,6 +132,85 @@ def test_write_changed_rewrites_a_deleted_file(tmp_path):
     assert historystore.read(tmp_path, ID_A) == b'a'
 
 
+def test_write_changed_fsyncs_the_directory_after_renames(tmp_path,
+                                                          monkeypatch):
+    events = []
+    real_write = historystore._write
+
+    def write(path, data):
+        real_write(path, data)
+        events.append(path.name)
+
+    monkeypatch.setattr(historystore, '_write', write)
+    monkeypatch.setattr(historystore, '_fsync_directory',
+                        lambda directory: events.append(directory))
+    digests = {}
+
+    historystore.write_changed(tmp_path, {ID_A: b'a', ID_B: b'b'}, digests)
+    assert events == [f'{ID_A}.bin', f'{ID_B}.bin', tmp_path]
+
+    historystore.write_changed(tmp_path, {ID_A: b'a', ID_B: b'b'}, digests)
+    assert events == [f'{ID_A}.bin', f'{ID_B}.bin', tmp_path]
+
+
+def test_write_changed_directory_fsync_failure(tmp_path, monkeypatch):
+    def fail(directory):
+        raise OSError('I/O error')
+
+    monkeypatch.setattr(historystore, '_fsync_directory', fail)
+    with pytest.raises(historystore.Error, match='I/O error'):
+        historystore.write_changed(tmp_path, {ID_A: b'a'}, {})
+
+
+def test_write_changed_retries_after_directory_fsync_failure(tmp_path,
+                                                             monkeypatch):
+    def fail(directory):
+        raise OSError('I/O error')
+
+    monkeypatch.setattr(historystore, '_fsync_directory', fail)
+    digests = {}
+    with pytest.raises(historystore.Error):
+        historystore.write_changed(tmp_path, {ID_A: b'a'}, digests)
+
+    written = []
+    monkeypatch.setattr(historystore, '_write',
+                        lambda path, data: written.append(path.name))
+    fsynced = []
+    monkeypatch.setattr(historystore, '_fsync_directory', fsynced.append)
+    historystore.write_changed(tmp_path, {ID_A: b'a'}, digests)
+    assert written == [f'{ID_A}.bin']
+    assert fsynced == [tmp_path]
+
+
+def test_write_changed_retries_after_a_failed_write(tmp_path, monkeypatch):
+    id_c = 'c' * 32
+    real_write = historystore._write
+
+    def write(path, data):
+        if path.name == f'{ID_B}.bin':
+            raise OSError('disk full')
+        real_write(path, data)
+
+    monkeypatch.setattr(historystore, '_write', write)
+    history = {ID_A: b'a', ID_B: b'b', id_c: b'c'}
+    digests = {}
+    with pytest.raises(historystore.Error, match='disk full'):
+        historystore.write_changed(tmp_path, history, digests)
+
+    written = []
+    monkeypatch.setattr(historystore, '_write',
+                        lambda path, data: written.append(path.name))
+    fsynced = []
+    monkeypatch.setattr(historystore, '_fsync_directory', fsynced.append)
+    historystore.write_changed(tmp_path, history, digests)
+    assert written == [f'{ID_A}.bin', f'{ID_B}.bin', f'{id_c}.bin']
+    assert fsynced == [tmp_path]
+
+
+def test_fsync_directory(tmp_path):
+    historystore._fsync_directory(tmp_path)
+
+
 def test_remove_unreferenced(tmp_path):
     digests = {}
     historystore.write_changed(tmp_path, {ID_A: b'a', ID_B: b'b'}, digests)

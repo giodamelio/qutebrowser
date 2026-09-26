@@ -24,7 +24,7 @@ import uuid
 import zlib
 from collections.abc import Mapping, MutableMapping
 
-from qutebrowser.utils import log
+from qutebrowser.utils import log, utils
 
 
 MAGIC = b'QUTEHIST'
@@ -153,6 +153,19 @@ def _write(path: pathlib.Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+def _fsync_directory(directory: pathlib.Path) -> None:
+    """Make the renames into a directory survive a power loss."""
+    if utils.is_windows:
+        # Windows can't open a directory as a file, and NTFS journals
+        # renames itself.
+        return
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def write_changed(directory: pathlib.Path, history: Mapping[str, bytes],
                   digests: MutableMapping[str, str]) -> None:
     """Write each tab's file unless it already holds exactly these bytes.
@@ -163,18 +176,34 @@ def write_changed(directory: pathlib.Path, history: Mapping[str, bytes],
         digests: Digests of the files on disk by tab id, updated as files
                  are written.
     """
-    for tab_id, data in history.items():
-        path = _path(directory, tab_id)
-        new_digest = (data.digest if isinstance(data, Snapshot)
-                      else digest(data))
-        # A file deleted behind our back is written again.
-        if digests.get(tab_id) == new_digest and path.exists():
-            continue
+    written = []
+    try:
+        for tab_id, data in history.items():
+            path = _path(directory, tab_id)
+            new_digest = (data.digest if isinstance(data, Snapshot)
+                          else digest(data))
+            # A file deleted behind our back is written again.
+            if digests.get(tab_id) == new_digest and path.exists():
+                continue
+            try:
+                _write(path, data)
+            except OSError as e:
+                raise Error(f"{path}: {e}")
+            digests[tab_id] = new_digest
+            written.append(tab_id)
+        if not written:
+            return
         try:
-            _write(path, data)
+            # session.yml, written next, refers to these files by name.
+            _fsync_directory(directory)
         except OSError as e:
-            raise Error(f"{path}: {e}")
-        digests[tab_id] = new_digest
+            raise Error(f"{directory}: {e}")
+    except Error:
+        # Otherwise the next save would skip these files, whose renames no
+        # fsync made durable.
+        for tab_id in written:
+            del digests[tab_id]
+        raise
 
 
 def remove_unreferenced(directory: pathlib.Path, referenced: set[str],
