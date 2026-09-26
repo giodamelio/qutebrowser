@@ -324,6 +324,7 @@ Feature: Saving and loading sessions
       - session: work-reopen
         tabs:
         - history:
+          - url: about:blank
           - url: http://localhost:*/data/numbers/1.txt
       """
 
@@ -433,6 +434,7 @@ Feature: Saving and loading sessions
       - session: work-pin
         tabs:
         - history:
+          - url: about:blank
           - url: http://localhost:*/data/numbers/1.txt
         - history:
           - url: http://localhost:*/data/numbers/2.txt
@@ -652,3 +654,27 @@ Feature: Saving and loading sessions
     And I run :debug-flush-sessions
     And I wait for "Flushed sessions." in the log
     Then the history files of session gone-tabs should belong to its open tabs
+
+  Scenario: A window restored from history keeps its back history
+    When I clear the log
+    And I run :session-new undo-history
+    And the window of session undo-history runs :open -w http://localhost:(port)/data/numbers/6.txt
+    And I wait until data/numbers/6.txt is loaded
+    And the newest window runs :open http://localhost:(port)/data/numbers/7.txt
+    And I wait until data/numbers/7.txt is loaded
+    And the newest window runs :window-close --no-prompt
+    And I wait for "removed: main-window" in the log
+    And I run :undo -w
+    And I wait until data/numbers/7.txt is loaded
+    Then the session should look like:
+      """
+      windows:
+      - session: default
+      - session: undo-history
+      - session: undo-history
+        tabs:
+        - history:
+          - url: http://localhost:*/data/numbers/6.txt
+          - active: true
+            url: http://localhost:*/data/numbers/7.txt
+      """

@@ -175,7 +175,13 @@ class FakeMainWindow:
 
 
 @pytest.fixture
-def fake_mainwindows(monkeypatch, mocker, config_stub):
+def histories():
+    """History bytes restore_window finds, by tab id; other ids have none."""
+    return {}
+
+
+@pytest.fixture
+def fake_mainwindows(monkeypatch, mocker, config_stub, histories):
     created = []
 
     def make(**kwargs):
@@ -183,8 +189,15 @@ def fake_mainwindows(monkeypatch, mocker, config_stub):
         created.append(window)
         return window
 
+    def read_history(session, tab_id):
+        if tab_id not in histories:
+            raise historystore.UnusableHistoryError('history file missing')
+        return histories[tab_id]
+
+    manager = mocker.Mock()
+    manager.read_history.side_effect = read_history
     monkeypatch.setattr(mainwindow, 'MainWindow', make)
-    monkeypatch.setattr(windowsessions, 'manager', mocker.Mock())
+    monkeypatch.setattr(windowsessions, 'manager', manager)
     return created
 
 
@@ -338,3 +351,98 @@ def test_referenced_ids():
             5,
         ])
     assert sessionfile.referenced_ids(data) == set(ids)
+
+
+def test_restore_window_loads_history_bytes(fake_mainwindows, histories):
+    tab_id = historystore.new_id()
+    histories[tab_id] = b'saved history'
+    window = restore({'tabs': [tab_data(tab_id)]})
+    [tab] = window.tabbed_browser.tabs
+    assert tab.history.private_api.deserialized == b'saved history'
+    assert tab.history.private_api.loaded is None
+    assert tab.title_changed.emitted == [('page',)]
+
+
+def tab_data_with_back(tab_id):
+    data = tab_data(tab_id)
+    data['history'].insert(0, {'url': 'https://example.com/', 'title': 'back'})
+    return data
+
+
+def test_restore_window_falls_back_with_one_warning(fake_mainwindows,
+                                                    histories, message_mock,
+                                                    caplog):
+    kept, missing, old = (historystore.new_id() for _ in range(3))
+    histories[kept] = b'saved history'
+    read_history = windowsessions.manager.read_history.side_effect
+
+    def read_old(session, tab_id):
+        if tab_id == old:
+            raise historystore.UnusableHistoryError(
+                'saved by QtWebEngine 6.10.0, running 6.11.2')
+        return read_history(session, tab_id)
+
+    windowsessions.manager.read_history.side_effect = read_old
+    with caplog.at_level(logging.WARNING):
+        window = restore({'tabs': [
+            tab_data_with_back(kept), tab_data_with_back(missing),
+            tab_data_with_back(old), tab_data_with_back(None)]})
+
+    tabs = window.tabbed_browser.tabs
+    assert [tab.history.private_api.deserialized for tab in tabs] == [
+        b'saved history', None, None, None]
+    assert [item.url for item in tabs[1].history.private_api.loaded] == [
+        QUrl('https://example.com/'), QUrl('https://example.org/')]
+    msg = message_mock.getmsg(usertypes.MessageLevel.warning)
+    assert msg.text == (
+        "3 tabs restored without back history: history file missing; "
+        "saved by QtWebEngine 6.10.0, running 6.11.2; no usable tab id")
+
+
+def test_restore_window_single_entry_without_history_is_silent(
+        fake_mainwindows, message_mock):
+    """A tab with one entry has no back history to lose.
+
+    Its history file may legitimately be missing: empty histories are never
+    written.
+    """
+    window = restore({'tabs': [tab_data(historystore.new_id()),
+                               tab_data(None)]})
+    tabs = window.tabbed_browser.tabs
+    assert [[item.url for item in tab.history.private_api.loaded]
+            for tab in tabs] == [[QUrl('https://example.org/')]] * 2
+    assert not message_mock.messages
+
+
+def test_restore_window_duplicate_id_reads_bytes_once(fake_mainwindows,
+                                                      histories, message_mock,
+                                                      caplog):
+    tab_id = historystore.new_id()
+    histories[tab_id] = b'saved history'
+    with caplog.at_level(logging.WARNING):
+        window = restore({'tabs': [tab_data_with_back(tab_id),
+                                   tab_data_with_back(tab_id)]})
+    first, second = window.tabbed_browser.tabs
+    assert first.history.private_api.deserialized == b'saved history'
+    assert second.history.private_api.deserialized is None
+    calls = windowsessions.manager.read_history.call_args_list
+    assert [call.args[1] for call in calls] == [tab_id]
+    assert message_mock.getmsg(usertypes.MessageLevel.warning).text == (
+        "1 tab restored without back history: no usable tab id")
+
+
+def test_restore_window_rejected_history(fake_mainwindows, histories,
+                                         monkeypatch):
+    tab_id = historystore.new_id()
+    histories[tab_id] = b'bytes qt refuses'
+
+    def reject(self, data):
+        raise OSError("QDataStream: read past end")
+
+    monkeypatch.setattr(FakeHistoryPrivate, 'deserialize', reject)
+    session = windowsessions.Session('work', private=False)
+    with pytest.raises(sessionfile.SessionFileError, match='OSError'):
+        sessionfile.restore_window({'tabs': [tab_data(tab_id)]}, session,
+                                   show=False)
+    [window] = fake_mainwindows
+    assert window.is_deleted

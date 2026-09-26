@@ -21,11 +21,12 @@ from qutebrowser.qt.core import Qt, QUrl, QPoint, QTimer, QDateTime, QByteArray
 
 from qutebrowser.config import config
 from qutebrowser.misc import historystore, objects
-from qutebrowser.utils import log, objreg, qtutils, utils
+from qutebrowser.utils import log, message, objreg, qtutils, utils
 
 
 JsonType: TypeAlias = MutableMapping[str, Any]
 DEFAULT_CONTAINER = 'default'
+_NO_ID = "no usable tab id"
 
 
 class SessionFileError(Exception):
@@ -305,8 +306,34 @@ def _live_ids(session) -> set[str]:
     return ids
 
 
-def _restore_tab(new_tab, data):  # noqa: C901
-    """Load saved tab data into a newly opened tab."""
+def _read_history(session, tab_id: str, problems: list[str]) -> bytes | None:
+    """Get a restored tab's history bytes, noting why when there are none."""
+    # mainwindow imports windowsessions, which imports this module.
+    from qutebrowser.mainwindow import windowsessions
+    try:
+        return windowsessions.manager.read_history(session, tab_id)
+    except historystore.UnusableHistoryError as e:
+        problems.append(e.reason)
+        return None
+
+
+def _warn_without_history(problems: list[str]) -> None:
+    count = len(problems)
+    tabs = 'tab' if count == 1 else 'tabs'
+    reasons = '; '.join(dict.fromkeys(problems))
+    message.warning(f"{count} {tabs} restored without back history: {reasons}")
+
+
+def _restore_tab(new_tab, data,  # noqa: C901
+                 history: bytes | None = None):
+    """Load saved tab data into a newly opened tab.
+
+    Args:
+        new_tab: The tab.
+        data: The tab's readable data from the session file.
+        history: The tab's history bytes, or None to load only its current
+                 page from data, as upstream does.
+    """
     entries = []
     lazy_load: MutableSequence[JsonType] = []
     # use len(data['history'])
@@ -343,7 +370,7 @@ def _restore_tab(new_tab, data):  # noqa: C901
         if 'pinned' in histentry:
             new_tab.data.pinned = histentry['pinned']
 
-        if (config.val.session.lazy_restore and
+        if (config.val.session.lazy_restore and history is None and
                 histentry.get('active', False) and
                 not histentry['url'].startswith('qute://back')):
             # remove "active" mark and insert back page marked as active
@@ -382,10 +409,14 @@ def _restore_tab(new_tab, data):  # noqa: C901
         if active:
             new_tab.title_changed.emit(histentry['title'])
 
-    new_tab.history.private_api.load_items(entries)
+    if history is None:
+        new_tab.history.private_api.load_items(entries)
+    else:
+        deserialize_tab(new_tab, history)
 
 
-def restore_window(data: JsonType, session, *, show: bool = True):
+def restore_window(data: JsonType, session, *,  # noqa: C901
+                   show: bool = True):
     """Create a MainWindow in session from saved window data."""
     # mainwindow imports windowsessions, which imports this module.
     from qutebrowser.mainwindow import mainwindow, windowsessions
@@ -397,18 +428,30 @@ def restore_window(data: JsonType, session, *, show: bool = True):
     window = mainwindow.MainWindow(geometry=geometry, session=session)
     tabbed_browser = window.tabbed_browser
     tab_to_focus = None
+    problems: list[str] = []
     try:
         for i, tab in enumerate(data['tabs']):
             new_tab = tabbed_browser.tabopen(background=False)
             tab_id = _claim_id(tab.get('id'), used_ids)
-            if tab_id is not None:
+            history = None
+            tab_problems: list[str] = []
+            if tab_id is None:
+                tab_problems.append(_NO_ID)
+            else:
                 new_tab.data.persistent_id = tab_id
-            _restore_tab(new_tab, tab)
+                history = _read_history(session, tab_id, tab_problems)
+            _restore_tab(new_tab, tab, history)
+            # A single entry has no back history to lose, and its file may
+            # never have been written (see window_history).
+            if len(tab['history']) > 1:
+                problems += tab_problems
             if tab.get('active', False):
                 tab_to_focus = i
             if new_tab.data.pinned:
                 new_tab.set_pinned(True)
-    except (KeyError, TypeError, ValueError, AttributeError) as e:
+    # OSError: QtWebEngine refused bytes of its own version, which only
+    # a corrupt file can explain (§21.5).
+    except (KeyError, TypeError, ValueError, AttributeError, OSError) as e:
         # Not close(): that saves the session with this half-built window
         # before the caller can move the session file aside.
         windowsessions.manager.remove_window(session, window.win_id)
@@ -419,6 +462,8 @@ def restore_window(data: JsonType, session, *, show: bool = True):
             f"{type(e).__name__}: {e}")
     if tab_to_focus is not None:
         tabbed_browser.widget.setCurrentIndex(tab_to_focus)
+    if problems:
+        _warn_without_history(problems)
 
     if show:
         window.show()
