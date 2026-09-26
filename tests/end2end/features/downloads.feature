@@ -99,6 +99,19 @@ Feature: Downloading things from a website.
         And I run :mode-leave
         Then no crash should happen
 
+    Scenario: Closing a container session's last window keeps its download running
+        When I clear the log
+        And I run :container-new dl-keep-a
+        And I run :session-new dl-keep --container dl-keep-a
+        And the window of session dl-keep runs :open http://localhost:(port)/drip?numbytes=128&duration=5
+        And I wait for "Setting filename to *drip" in the log
+        And the window of session dl-keep runs :close
+        And I wait for "removed: main-window" in the log
+        And I wait until the download drip is finished
+        And I wait for "Deleting profile 'dl-keep-a'" in the log
+        Then "Asking question *" should not be logged
+        And the downloaded file drip should be 128 bytes big
+
     Scenario: Closing window with downloads.remove_finished timeout (issue 1242)
         When I set downloads.remove_finished to 500
         And I open data/downloads/download.bin in a new window without waiting
@@ -124,7 +137,9 @@ Feature: Downloading things from a website.
         When I set downloads.location.prompt to true
         And I open data/downloads/download.bin without waiting
         And I wait for "Asking question <qutebrowser.utils.usertypes.Question default='*' mode=<PromptMode.download: 5> option=None text='Please enter a location for <b>http://localhost:*/data/downloads/download.bin</b>' title='Save file to:'>, *" in the log
-        And I run :close
+        And I run :cmd-later 10 close
+        And I wait for "Asking question <qutebrowser.utils.usertypes.Question default=False mode=<PromptMode.yesno: 1> *" in the log
+        And I run :prompt-accept yes
         Then qutebrowser should quit
         # (and no crash should happen)
 

@@ -1581,10 +1581,13 @@ _DOWNLOADS_QUESTION = (
     "title='1 download still running. Close anyway?'>, *")
 
 
-@pytest.mark.parametrize('closing', ['quit'])
+@pytest.mark.parametrize('closing', ['quit', 'close', 'tab-close'])
 def test_closing_with_running_downloads_asks(request, quteproc_new, server,
                                              tmp_path, closing):
-    """Quitting with a download running asks first; no keeps everything."""
+    """Quitting or closing the last window with a download running asks first.
+
+    No keeps everything, including the last tab.
+    """
     args = _base_args(request.config) + [
         '--temp-basedir',
         '-s', 'downloads.location.prompt', 'false',

@@ -16,6 +16,7 @@ Quitting while downloads are running asks first, since it ends them.
 import datetime
 import enum
 from typing import Any
+from collections.abc import Collection
 
 from qutebrowser.api import cmdutils
 from qutebrowser.completion.models import miscmodels
@@ -123,6 +124,27 @@ def confirm_quit(win_id: int) -> bool:
         title=f"{count} {noun} still running. Close anyway?",
         mode=usertypes.PromptMode.yesno, default=False, win_id=win_id)
     return bool(answer)
+
+
+def confirm_close(win_id: int, closing: Collection[int]) -> bool:
+    """Ask before closing windows quits with downloads running.
+
+    Closing other windows never asks: a container profile released with its
+    session outlives its downloads (ProfileRegistry holds it until they
+    finish), so only quitting ends them.
+
+    Args:
+        win_id: The window to ask in.
+        closing: The windows about to close.
+
+    Return:
+        Whether closing may go ahead.
+    """
+    if windowsessions.manager.shutting_down:
+        return True
+    if not set(objreg.window_registry) <= set(closing):
+        return True
+    return confirm_quit(win_id)
 
 
 @cmdutils.register()

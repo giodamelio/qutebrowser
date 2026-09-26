@@ -75,8 +75,18 @@ def open_startup_sessions(*, private: bool, show: bool) -> None:
             window.show()
 
 
-def close_session(session: windowsessions.Session) -> None:
-    """Save a session and close all of its windows without asking."""
+def close_session(session: windowsessions.Session, win_id: int) -> None:
+    """Save a session and close all of its windows.
+
+    If those are the browser's last windows and downloads are running, asks
+    first; no leaves the session open and saves nothing.
+
+    Args:
+        session: The session to close.
+        win_id: The window to ask in.
+    """
+    if not closedwindows.confirm_close(win_id, session.windows):
+        return
     windowsessions.manager.begin_close(session)
     for window_id in sorted(session.windows):
         window = objreg.window_registry[window_id]
@@ -165,7 +175,8 @@ def session_close(name: str | None = None, *,
         if windowsessions.manager.unlist(session):
             return
         raise cmdutils.CommandError(f"Session {session.name} is not open")
-    close_session(session)
+    assert win_id is not None
+    close_session(session, win_id)
 
 
 @cmdutils.register()
