@@ -243,9 +243,17 @@ class Quitter(QObject):
 
 
 @cmdutils.register(name='quit')
-def quit_() -> None:
-    """Quit qutebrowser, keeping every open session for the next start."""
-    instance.shutdown()
+@cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+def quit_(win_id: int) -> None:
+    """Quit qutebrowser, keeping every open session for the next start.
+
+    Asks first while downloads are running.
+    """
+    # closedwindows imports the completion models, which can't be imported
+    # this early: browser.inspector and misc.miscwidgets import each other.
+    from qutebrowser.misc import closedwindows
+    if closedwindows.confirm_quit(win_id):
+        instance.shutdown()
 
 
 @cmdutils.register()
