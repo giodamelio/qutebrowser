@@ -316,6 +316,17 @@ class SessionManager:
             return
         # The files move with the directory; the next save writes them all.
         session.history_digests.clear()
+        # Closed windows stay in the session, but no window holds their
+        # tabs' bytes.
+        closed = sessionfile.referenced_ids(
+            sessionfile.SessionData(closed_windows=session.closed_windows))
+        for tab_id in closed - session.held_history.keys():
+            try:
+                session.held_history[tab_id] = historystore.read(
+                    self.history_dir(session), tab_id)
+            except historystore.UnusableHistoryError:
+                # Such a tab restores without back history either way.
+                pass
         self._quarantine(session.name, directory,
                          f"Session {session.name} did not fully restore")
 
