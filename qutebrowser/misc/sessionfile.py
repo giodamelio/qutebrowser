@@ -91,6 +91,12 @@ class LazyHistory:
     def url(self) -> QUrl:
         return _entry_url(_active_entry(self.data['history']))
 
+    @property
+    def title(self) -> str:
+        """The saved active entry's title, else the last entry's, else ''."""
+        entry = _active_entry(self.data['history'])
+        return '' if entry is None else entry['title']
+
 
 @dataclasses.dataclass
 class SessionData:
@@ -276,6 +282,18 @@ def tab_history(tab) -> bytes:
     if lazy is not None:
         return lazy.history
     return bytes(tab.history.private_api.serialize())
+
+
+def tab_url(tab) -> QUrl:
+    """Get a tab's URL, the saved one while it waits to be shown (§21.5)."""
+    lazy = tab.data.lazy_history
+    return tab.url() if lazy is None else lazy.url
+
+
+def tab_title(tab) -> str:
+    """Get a tab's title, the saved one while it waits to be shown (§21.5)."""
+    lazy = tab.data.lazy_history
+    return tab.title() if lazy is None else lazy.title
 
 
 def deserialize_tab(tab, history: bytes) -> None:

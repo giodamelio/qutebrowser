@@ -18,7 +18,7 @@ from qutebrowser.qt.gui import QIcon, QPalette, QColor
 
 from qutebrowser.utils import qtutils, objreg, utils, usertypes, log
 from qutebrowser.config import config, stylesheet
-from qutebrowser.misc import objects, debugcachestats
+from qutebrowser.misc import objects, debugcachestats, sessionfile
 from qutebrowser.browser import browsertab
 
 
@@ -331,7 +331,7 @@ class TabWidget(QTabWidget):
             The tab URL as QUrl.
         """
         tab = self._tab_by_idx(idx)
-        url = QUrl() if tab is None else tab.url()
+        url = QUrl() if tab is None else sessionfile.tab_url(tab)
         # It's possible for url to be invalid, but the caller will handle that.
         qtutils.ensure_valid(url)
         return url
