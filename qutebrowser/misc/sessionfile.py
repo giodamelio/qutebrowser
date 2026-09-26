@@ -400,34 +400,46 @@ def window_history(window) -> dict[str, bytes]:
     return history
 
 
-def _window_ids(window: Any) -> set[str]:
+def _window_ids(window: Any, strict: bool) -> set[str]:
+    def items(value: Any, kind: type) -> list[Any]:
+        if isinstance(value, list) and all(isinstance(item, kind)
+                                           for item in value):
+            return value
+        if strict:
+            raise ValueError(f"expected a list of {kind.__name__}, got "
+                             f"{type(value).__name__}")
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, kind)]
+
     if not isinstance(window, dict):
+        if strict:
+            raise ValueError(
+                f"expected a window mapping, got {type(window).__name__}")
         return set()
-    ids = set()
-    tabs = window.get('tabs')
-    if isinstance(tabs, list):
-        ids.update(tab.get('id') for tab in tabs if isinstance(tab, dict))
-    groups = window.get('closed_tabs')
-    if isinstance(groups, list):
-        for group in groups:
-            if isinstance(group, list):
-                ids.update(item.get('id') for item in group
-                           if isinstance(item, dict))
-    return ids
+    tabs = items(window.get('tabs'), dict)
+    groups = items(window.get('closed_tabs', []), list)
+    closed = [item for group in groups for item in items(group, dict)]
+    return {tab.get('id') for tab in tabs + closed}
 
 
-def referenced_ids(data: SessionData) -> set[str]:
+def referenced_ids(data: SessionData, *, strict: bool = False) -> set[str]:
     """Get the tab ids whose history files a session file refers to.
 
     Hand edits can break the shape; whatever doesn't parse refers to
     nothing, and invalid ids are never file names.
+
+    Args:
+        data: The session file's contents.
+        strict: Raise ValueError instead for a window whose tab ids can't
+                all be found, as its files may still be wanted.
     """
     ids = set()
     for window in data.windows:
-        ids |= _window_ids(window)
+        ids |= _window_ids(window, strict)
     for entry in data.closed_windows:
-        if isinstance(entry, dict):
-            ids |= _window_ids(entry.get('window'))
+        ids |= _window_ids(
+            entry.get('window') if isinstance(entry, dict) else None, strict)
     return {tab_id for tab_id in ids if historystore.is_valid_id(tab_id)}
 
 

@@ -276,10 +276,18 @@ class SessionManager:
                 self._unreadable.add(name)
                 message.error(f"Skipping session {name}: invalid container: {e}")
                 continue
-            # Left by a crash between writing history files and session.yml.
-            historystore.remove_unreferenced(directory / HISTORY_DIR,
-                                             sessionfile.referenced_ids(data),
-                                             {})
+            try:
+                referenced = sessionfile.referenced_ids(data, strict=True)
+            except ValueError as e:
+                # A window that can't be read fails to restore, and the
+                # session moves aside for repair with its files.
+                log.sessions.debug(
+                    f"Keeping every history file of session {name}: {e}")
+            else:
+                # Left by a crash between writing history files and
+                # session.yml.
+                historystore.remove_unreferenced(directory / HISTORY_DIR,
+                                                 referenced, {})
             session = Session(name, private=False, container=data.container)
             session.saved_windows = data.windows
             session.closed_windows = data.closed_windows

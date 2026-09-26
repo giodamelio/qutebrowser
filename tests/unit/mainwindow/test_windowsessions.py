@@ -1128,6 +1128,28 @@ def test_startup_removes_history_files_nothing_refers_to(
         {'win': 1, 'tabs': [{'id': ID_A, 'history': []}]}]
 
 
+@pytest.mark.parametrize('content', [
+    f'windows:\n- tabs:\n    first: {{id: {ID_A}, history: []}}\n',
+    'windows: []\nclosed_windows:\n'
+    f'- window: {{tabs: [], closed_tabs: {{x: [{{id: {ID_A}}}]}}}}\n',
+    'windows: []\nclosed_windows:\n- window: junk\n',
+], ids=['tabs', 'closed_tabs', 'closed_window'])
+def test_startup_keeps_files_it_cannot_account_for(
+        history_manager, base_path, content, caplog):
+    """A hand-edited session.yml must reach .broken/ with its files."""
+    session_file(base_path, 'work').write_text(content)
+    history_dir = base_path / 'work' / 'history'
+    history_dir.mkdir()
+    historystore.write_changed(history_dir, {ID_A: b'a'}, {})
+
+    fresh = windowsessions.SessionManager(base_path)
+    with caplog.at_level(logging.DEBUG):
+        fresh.load_all()
+
+    assert history_files(base_path, 'work') == [f'{ID_A}.bin']
+    assert 'Keeping every history file of session work' in caplog.text
+
+
 def test_closed_window_files_live_while_it_is_kept(history_manager, windows,
                                                    base_path):
     default = history_manager.default
