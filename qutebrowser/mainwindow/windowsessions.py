@@ -385,6 +385,17 @@ class SessionManager:
         """Get the history bytes of a window's tabs, by tab id."""
         return self._window_history(window)
 
+    def read_history(self, session: Session, tab_id: str) -> bytes:
+        """Get a restored tab's history bytes.
+
+        Raises historystore.UnusableHistoryError when there are none to use.
+        """
+        if tab_id in session.held_history:
+            return session.held_history[tab_id]
+        data = historystore.read(self.history_dir(session), tab_id)
+        session.history_digests[tab_id] = historystore.digest(data)
+        return data
+
     def new_session(self, name: str, *,
                     container: str = DEFAULT_CONTAINER) -> Session:
         """Create a session and its file, without opening it."""

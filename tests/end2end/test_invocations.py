@@ -299,13 +299,12 @@ def test_quit_restores_open_sessions(request, quteproc_new, short_tmpdir):
 
     quteproc_new.start(args)
     quteproc_new.wait_for_load_finished('data/numbers/1.txt')
-    # QtWebEngine tabs only restore their active URL, not the full back
-    # history - see _load_items_workaround in webenginetab.py.
     quteproc_new.compare_session("""
         windows:
             - session: default
               tabs:
               - history:
+                - url: about:blank
                 - url: http://localhost:*/data/numbers/1.txt
     """)
     quteproc_new.send_cmd(':quit')
@@ -322,13 +321,12 @@ def test_last_window_close_keeps_session(request, quteproc_new, short_tmpdir):
 
     quteproc_new.start(args)
     quteproc_new.wait_for_load_finished('data/numbers/2.txt')
-    # QtWebEngine tabs only restore their active URL, not the full back
-    # history - see _load_items_workaround in webenginetab.py.
     quteproc_new.compare_session("""
         windows:
             - session: default
               tabs:
               - history:
+                - url: about:blank
                 - url: http://localhost:*/data/numbers/2.txt
     """)
     quteproc_new.send_cmd(':quit')
@@ -406,13 +404,12 @@ def test_session_survives_kill(request, quteproc_new, short_tmpdir):
 
     quteproc_new.start(args)
     quteproc_new.wait_for_load_finished('data/numbers/3.txt')
-    # QtWebEngine tabs only restore their active URL, not the full back
-    # history - see _load_items_workaround in webenginetab.py.
     quteproc_new.compare_session("""
         windows:
             - session: default
               tabs:
               - history:
+                - url: about:blank
                 - url: http://localhost:*/data/numbers/3.txt
     """)
     quteproc_new.send_cmd(':quit')
@@ -1418,5 +1415,98 @@ def test_tab_ids_follow_moves_and_clones(request, quteproc_new):
     assert win_id == target
     assert _urls(taken) == _urls(original)
 
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
+def test_back_and_forward_walk_restored_history(request, quteproc_new,
+                                                short_tmpdir):
+    """A restored tab keeps its whole back and forward history (§21)."""
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
+    quteproc_new.start(args)
+    for number in [1, 2, 3]:
+        quteproc_new.open_path(f'data/numbers/{number}.txt')
+    quteproc_new.send_cmd(':back')
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    [window] = quteproc_new.get_session()['windows']
+    tab = window['tabs'][0]
+    assert _urls(tab) == ['about:blank'] + [
+        quteproc_new.path_to_url(f'data/numbers/{number}.txt')
+        for number in [1, 2, 3]]
+    assert [item.get('active', False) for item in tab['history']] == [
+        False, False, True, False]
+
+    # The positional about:blank opened a second tab and took focus.
+    quteproc_new.send_cmd(':tab-focus 1')
+    quteproc_new.send_cmd(':back')
+    quteproc_new.wait_for_load_finished('data/numbers/1.txt')
+    quteproc_new.send_cmd(':forward')
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    quteproc_new.send_cmd(':forward')
+    quteproc_new.wait_for_load_finished('data/numbers/3.txt')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
+def test_history_from_another_qtwebengine_restores_current_page(
+        request, quteproc_new, short_tmpdir):
+    """History bytes from another QtWebEngine version aren't loaded."""
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
+    quteproc_new.start(args)
+    quteproc_new.open_path('data/numbers/1.txt')
+    quteproc_new.open_path('data/numbers/2.txt')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    history_dir = pathlib.Path(str(short_tmpdir), 'data', 'sessions',
+                               'default', 'history')
+    paths = list(history_dir.glob('*.bin'))
+    assert paths
+    for path in paths:
+        data, _version = historystore.decode(path.read_bytes())
+        path.write_bytes(historystore.encode(data, '5.15.0'))
+
+    quteproc_new.start(args)
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    quteproc_new.mark_expected(
+        category='message', loglevel=logging.WARNING,
+        message='* restored without back history: saved by QtWebEngine '
+                '5.15.0, running *')
+    [window] = quteproc_new.get_session()['windows']
+    assert _urls(window['tabs'][0]) == [
+        quteproc_new.path_to_url('data/numbers/2.txt')]
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+
+def test_moved_window_keeps_history_after_restart(request, quteproc_new,
+                                                  short_tmpdir):
+    """A window moved to another session takes its history files along."""
+    args = _base_args(request.config) + ['--basedir', str(short_tmpdir)]
+    quteproc_new.start(args)
+    quteproc_new.open_path('data/numbers/1.txt')
+    quteproc_new.open_path('data/numbers/2.txt')
+    [window] = quteproc_new.get_session()['windows']
+    expected = _urls(window['tabs'][0])
+    quteproc_new.send_cmd(':session-new moved-history')
+    quteproc_new.wait_for(message='Saved session moved-history')
+    quteproc_new.send_cmd(f':debug-run-in-window {window["win_id"]} '
+                          'session-move-window moved-history')
+    quteproc_new.wait_for(message='Saved session moved-history')
+    quteproc_new.send_cmd(':quit')
+    quteproc_new.wait_for_quit()
+
+    quteproc_new.start(args)
+    quteproc_new.wait_for_load_finished('data/numbers/2.txt')
+    windows = quteproc_new.get_session()['windows']
+    assert {win['session'] for win in windows} == {'moved-history'}
+    restored = [tab for win in windows for tab in win['tabs']
+                if _urls(tab) == expected]
+    assert len(restored) == 1
     quteproc_new.send_cmd(':quit')
     quteproc_new.wait_for_quit()

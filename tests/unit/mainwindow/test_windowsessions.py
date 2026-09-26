@@ -1171,6 +1171,46 @@ def test_move_aside_forgets_history_digests(history_manager, base_path,
     assert (base_path / 'work.broken' / 'session.yml').exists()
 
 
+def test_open_session_moves_aside_after_every_window(
+        history_manager, base_path, monkeypatch, message_mock, caplog):
+    """A window QtWebEngine refuses doesn't cost later windows their history.
+
+    Moving the directory aside mid-loop would take their files with it.
+    """
+    work = history_manager.new_session('work')
+    work.saved_windows = [{'tabs': [{'id': ID_A}]}, {'tabs': [{'id': ID_B}]}]
+    history_dir = base_path / 'work' / 'history'
+    historystore.write_changed(
+        history_dir, {ID_A: b'refused', ID_B: b'good'}, {})
+    restored = []
+
+    def restore(data, session, *, show=True):
+        [tab] = data['tabs']
+        problems: list[str] = []
+        history = sessionfile._read_history(session, tab['id'], problems)
+        if history == b'refused':
+            raise sessionfile.SessionFileError(
+                "Session work has an invalid window: OSError: refused")
+        restored.append((history, problems))
+        return object()
+
+    moved_after = []
+    real_move_aside = history_manager.move_aside
+
+    def move_aside(session):
+        moved_after.append(list(restored))
+        real_move_aside(session)
+
+    monkeypatch.setattr(sessionfile, 'restore_window', restore)
+    monkeypatch.setattr(history_manager, 'move_aside', move_aside)
+    with caplog.at_level(logging.ERROR):
+        sessioncommands.open_session(work)
+
+    assert restored == [(b'good', [])]
+    assert moved_after == [[(b'good', [])]]
+    assert (base_path / 'work.broken' / 'session.yml').exists()
+
+
 class _StubTabData:
 
     def __init__(self, persistent_id):
@@ -1222,3 +1262,30 @@ def test_save_keeps_file_when_tab_history_looks_empty(
 
     assert path.read_bytes() == before
     assert history_files(base_path, 'default') == [f'{ID_A}.bin']
+
+
+def test_read_history_prefers_held_bytes(history_manager):
+    default = history_manager.default
+    default.held_history[ID_A] = b'held'
+    assert history_manager.read_history(default, ID_A) == b'held'
+
+
+def test_read_history_remembers_the_file(history_manager, windows, base_path,
+                                         monkeypatch):
+    default = history_manager.default
+    history_dir = base_path / 'default' / 'history'
+    history_dir.mkdir(parents=True)
+    historystore.write_changed(history_dir, {ID_A: b'on disk'}, {})
+
+    assert history_manager.read_history(default, ID_A) == b'on disk'
+    assert default.history_digests == {ID_A: historystore.digest(b'on disk')}
+
+    written = count_writes(monkeypatch)
+    history_window(history_manager, windows, default, 1, {ID_A: b'on disk'})
+    history_manager.save(default)
+    assert written == []
+
+
+def test_read_history_missing(history_manager):
+    with pytest.raises(historystore.UnusableHistoryError, match='missing'):
+        history_manager.read_history(history_manager.default, ID_A)

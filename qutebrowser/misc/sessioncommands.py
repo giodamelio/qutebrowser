@@ -19,12 +19,17 @@ def open_session(session: windowsessions.Session, *,
     """Open a closed session, restoring its saved windows."""
     assert not session.is_open, session
     windows = []
+    failed = False
     for data in session.saved_windows:
         try:
             windows.append(sessionfile.restore_window(data, session, show=show))
         except sessionfile.SessionFileError as e:
             message.error(f"Failed to restore a window: {e}")
-            windowsessions.manager.move_aside(session)
+            failed = True
+    # Not in the loop: moving the directory takes the history files the
+    # remaining windows still need to read.
+    if failed:
+        windowsessions.manager.move_aside(session)
     if not windows:
         window = mainwindow.MainWindow(session=session)
         if fill_start_pages:
