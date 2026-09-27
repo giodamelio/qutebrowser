@@ -128,6 +128,9 @@ class TreeTabWidget(TabWidget):
                 parent_idx = self.indexOf(node.parent.value)
                 self.insertTab(parent_idx + 1, tab, icon, name)
                 tab.node.parent = parent  # insertTab resets node
+                # The icon above is the page's, whatever tabs.favicons.show
+                # says.
+                self.update_tab_favicon(tab)
 
     def tree_tab_update(self):
         """Update titles and positions."""

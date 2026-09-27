@@ -391,3 +391,19 @@ class TestUndoEntry:
         assert child.parent is root
         assert node.children == ()
         assert len(list(root.traverse())) == 4
+
+
+def test_revealed_tab_gets_favicon_setting(mocker):
+    """A tab revealed from a collapsed tab follows tabs.favicons.show."""
+    widget = mocker.Mock(spec=treetabwidget.TreeTabWidget)
+    root = Node(None)
+    widget.tree_root = root
+    parent_tab, tab = mocker.Mock(), mocker.Mock()
+    parent_tab.node = Node(parent_tab, parent=root)
+    tab.node = Node(tab, parent=parent_tab.node)
+    widget.indexOf.side_effect = lambda t: 0 if t is parent_tab else -1
+
+    treetabwidget.TreeTabWidget.update_tree_tab_visibility(widget)
+
+    widget.insertTab.assert_called_once()
+    widget.update_tab_favicon.assert_called_once_with(tab)
