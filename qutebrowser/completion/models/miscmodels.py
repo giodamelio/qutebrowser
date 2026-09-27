@@ -211,7 +211,8 @@ def window(*, info):
             continue
         tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                     window=win_id)
-        tab_titles = (tab.title() for tab in tabbed_browser.widgets())
+        tab_titles = (tab.title()
+                      for tab in tabbed_browser.tabs(include_hidden=True))
         windows.append(("{}".format(win_id),
                         objreg.window_registry[win_id].windowTitle(),
                         ", ".join(tab_titles)))

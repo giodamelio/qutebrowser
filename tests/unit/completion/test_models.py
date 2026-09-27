@@ -1042,6 +1042,27 @@ def test_window_completion(qtmodeltester, fake_web_tab, tabbed_browser_stubs,
     })
 
 
+def test_window_completion_hidden_tabs(qtmodeltester, fake_web_tab,
+                                       tabbed_browser_stubs, info):
+    tabbed_browser_stubs[0].widget.tabs = [
+        fake_web_tab(QUrl('https://github.com'), 'GitHub', 0),
+    ]
+    tabbed_browser_stubs[0].hidden_tabs = [
+        fake_web_tab(QUrl('https://wikipedia.org'), 'Wikipedia', 1),
+    ]
+
+    info.win_id = 1
+    model = miscmodels.window(info=info)
+    model.set_pattern('')
+    qtmodeltester.check(model)
+
+    _check_completions(model, {
+        'Windows': [
+            ('0', 'window title - qutebrowser', 'GitHub, Wikipedia'),
+        ]
+    })
+
+
 def test_setting_option_completion(qtmodeltester, config_stub,
                                    configdata_stub, info):
     model = configmodel.option(info=info)
