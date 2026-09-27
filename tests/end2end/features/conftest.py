@@ -174,6 +174,51 @@ def clean_open_tabs(quteproc):
     quteproc.wait_for_load_finished_url('about:blank')
 
 
+@bdd.given("I delete the sessions and containers earlier scenarios made")
+def delete_earlier_sessions(quteproc):
+    """Delete every session but default, and every runtime container.
+
+    Their names outlive the scenario that made them, so running a scenario
+    twice in one process would fail on "already exists".
+    """
+    data = pathlib.Path(quteproc.basedir, 'data')
+    sessions = data / 'sessions'
+    if sessions.exists():
+        for path in sorted(sessions.iterdir()):
+            # Moved-aside broken sessions aren't sessions any more.
+            if (path.is_dir() and path.name != 'default' and
+                    not path.name.endswith('.broken')):
+                _retry_while_busy(quteproc, f':session-delete {path.name}',
+                                  f'Session {path.name} is open, close it '
+                                  'first')
+    containers = data / 'containers.yml'
+    if containers.exists():
+        for name in utils.yaml_load(containers.read_text(encoding='utf-8')) or {}:
+            # A closed session's container unloads once its pages are gone.
+            _retry_while_busy(quteproc, f':container-delete {name}',
+                              f'Container {name} is still loaded*')
+
+
+def _retry_while_busy(quteproc, command, busy_error):
+    """Run a command again while it fails with busy_error."""
+    for attempt in range(40):
+        quteproc.send_cmd(command)
+        # Commands run in order, so an error is logged before this.
+        marker = f'{command} attempt {attempt} done'
+        quteproc.send_cmd(f':message-info "{marker}"')
+        quteproc.wait_for(category='message', loglevel=logging.INFO,
+                          message=marker)
+        try:
+            line = quteproc.wait_for(category='message',
+                                     loglevel=logging.ERROR,
+                                     message=busy_error, timeout=100)
+        except testprocess.WaitForTimeout:
+            return
+        line.expected = True
+        time.sleep(0.25)
+    raise AssertionError(f"{command} kept failing with {busy_error!r}")
+
+
 @bdd.given('pdfjs is available')
 def pdfjs_available(data_tmpdir):
     if not pdfjs.is_available():
@@ -829,6 +874,15 @@ def give_tab_to_session(quteproc, name):
     windows = quteproc.get_session()['windows']
     win_id = next(win['win_id'] for win in windows if win['session'] == name)
     quteproc.send_cmd(f':tab-give {win_id}')
+
+
+@bdd.when(bdd.parsers.parse(
+    'the window of session {source} gives its current tab to the window of '
+    'session {target}'))
+def give_tab_between_sessions(quteproc, server, source, target):
+    """Run :tab-give in one session's window, giving to another's."""
+    _run_in_window(quteproc, server, _session_window_id(quteproc, source),
+                   f':tab-give {_session_window_id(quteproc, target)}')
 
 
 @bdd.when(bdd.parsers.parse(

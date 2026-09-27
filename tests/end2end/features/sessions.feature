@@ -2,6 +2,7 @@ Feature: Saving and loading sessions
 
   Background:
     Given I run :debug-close-other-sessions
+    And I delete the sessions and containers earlier scenarios made
     And I clean up open tabs
     And I set url.start_pages to ["about:blank"]
 
@@ -273,6 +274,7 @@ Feature: Saving and loading sessions
   Scenario: Creating a session opens it in a new window
     When I run :session-new work-new
     And I wait for "Saved session work-new" in the log
+    And I wait until about:blank is loaded
     Then the session work-new should exist
     And the session should look like:
       """
@@ -312,7 +314,9 @@ Feature: Saving and loading sessions
 
   Scenario: Closing and reopening a session restores its windows
     When I run :session-new work-reopen
-    And I open data/numbers/1.txt
+    And I wait until about:blank is loaded
+    And the window of session work-reopen runs :open http://localhost:(port)/data/numbers/1.txt
+    And I wait until data/numbers/1.txt is loaded
     And I run :session-close work-reopen
     And I wait for "Saved session work-reopen" in the log
     And I run :session-open work-reopen
@@ -419,10 +423,14 @@ Feature: Saving and loading sessions
 
   Scenario: Pinned tabs survive closing and reopening a session
     When I run :session-new work-pin
-    And I open data/numbers/1.txt
-    And I open data/numbers/2.txt in a new tab
-    And I open data/numbers/3.txt in a new tab
-    And I run :tab-pin with count 2
+    And I wait until about:blank is loaded
+    And the window of session work-pin runs :open http://localhost:(port)/data/numbers/1.txt
+    And I wait until data/numbers/1.txt is loaded
+    And the window of session work-pin runs :open -t http://localhost:(port)/data/numbers/2.txt
+    And I wait until data/numbers/2.txt is loaded
+    And the window of session work-pin runs :open -t http://localhost:(port)/data/numbers/3.txt
+    And I wait until data/numbers/3.txt is loaded
+    And the window of session work-pin runs :cmd-run-with-count 2 tab-pin
     And I run :session-close work-pin
     And I wait for "Saved session work-pin" in the log
     And I run :session-open work-pin
@@ -490,11 +498,16 @@ Feature: Saving and loading sessions
   Scenario: Giving a tab to another session on the same container
     When I run :container-new share-give-a
     And I run :session-new share-give-one --container share-give-a
-    And I open data/numbers/1.txt
+    And I wait until about:blank is loaded
+    And the window of session share-give-one runs :open http://localhost:(port)/data/numbers/1.txt
+    And I wait until data/numbers/1.txt is loaded
     And I run :session-new share-give-two --container share-give-a
-    And I open data/numbers/2.txt
-    And I open data/numbers/3.txt in a new tab
-    And I give the current tab to the window of session share-give-one
+    And I wait until about:blank is loaded
+    And the window of session share-give-two runs :open http://localhost:(port)/data/numbers/2.txt
+    And I wait until data/numbers/2.txt is loaded
+    And the window of session share-give-two runs :open -t http://localhost:(port)/data/numbers/3.txt
+    And I wait until data/numbers/3.txt is loaded
+    And the window of session share-give-two gives its current tab to the window of session share-give-one
     And I wait until data/numbers/3.txt is loaded
     Then the session should look like:
       """

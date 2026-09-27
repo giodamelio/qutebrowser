@@ -3,6 +3,7 @@ Feature: Containers
 
     Background:
         Given I run :debug-close-other-sessions
+        And I delete the sessions and containers earlier scenarios made
         And I set url.start_pages to ["about:blank"]
         And I clean up open tabs
 
