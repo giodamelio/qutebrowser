@@ -525,11 +525,22 @@ class CommandDispatcher:
             notree.TraverseOrder.PRE,
             render_collapsed=True
         ):
+            try:
+                history = sessionfile.tab_history(node.value)
+            except browsertab.WebTabError:
+                # An internal page can't hand over its history, but unlike
+                # a single tab, one of many doesn't stop the move.
+                history = None
             tab = tabbed_browser.tabopen(
-                node.value.url(),
+                sessionfile.tab_url(node.value) if history is None else None,
                 related=False,
                 background=True,
             )
+            if history is not None:
+                sessionfile.deserialize_tab(tab, history)
+            if not keep:
+                # The same tab, moved, so its saved history file stays its own.
+                tab.data.persistent_id = node.value.data.persistent_id
             new_tab_map[node.uid] = tab
 
             if node.collapsed:
@@ -541,6 +552,10 @@ class CommandDispatcher:
         tabbed_browser.widget.setCurrentWidget(new_tab_map[current_node.uid])
         tabbed_browser.window().show()
         if not keep:
+            # Before the close, which can save the source without the files.
+            windowsessions.manager.carry_history(
+                source.session, tabbed_browser.session,
+                [tab.data.persistent_id for tab in new_tab_map.values()])
             source.close_tab(
                 current_node.value,
                 add_undo=False,

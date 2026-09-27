@@ -122,6 +122,7 @@ Feature: Tree tab management
                 - url: http://localhost:*/data/numbers/5.txt
             - tabs:
               - history:
+                - url: about:blank
                 - url: http://localhost:*/data/numbers/1.txt
               - history:
                 - url: http://localhost:*/data/numbers/3.txt
@@ -595,6 +596,7 @@ Feature: Tree tab management
               - history:
                 - url: http://localhost:*/data/numbers/4.txt
               - history:
+                - url: about:blank
                 - url: http://localhost:*/data/numbers/1.txt
               - history:
                 - url: http://localhost:*/data/numbers/2.txt
