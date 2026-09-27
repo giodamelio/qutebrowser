@@ -111,8 +111,9 @@ class UnreadableRow:
 
 
 def _live_counts(session: windowsessions.Session) -> tuple[int, int]:
-    tabs = sum(len(objreg.window_registry[win_id].tabbed_browser.widgets())
-               for win_id in session.windows)
+    browsers = [objreg.window_registry[win_id].tabbed_browser
+                for win_id in session.windows]
+    tabs = sum(len(browser.tabs(include_hidden=True)) for browser in browsers)
     return len(session.windows), tabs
 
 

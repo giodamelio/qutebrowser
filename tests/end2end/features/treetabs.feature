@@ -232,20 +232,22 @@ Feature: Tree tab management
             """
 
     Scenario: Load a collapsed subtree
-        # Same setup as above
-        When I open data/numbers/1.txt
+        # Same setup as above, in its own session so it can be reopened
+        When I run :session-new tree-collapsed
+        And I open data/numbers/1.txt
         And I open data/numbers/2.txt in a new related tab
         And I open data/numbers/3.txt in a new related tab
         And I run :tab-focus 2
         And I run :tree-tab-toggle-hide
-        # Now actually load the saved session
-        And I run :session-save foo
-        And I run :session-load -c foo
+        # Now actually reopen the saved session
+        And I run :session-close tree-collapsed
+        And I wait for "Saved session tree-collapsed" in the log
+        And I run :session-open tree-collapsed
         And I wait until data/numbers/1.txt is loaded
         And I wait until data/numbers/2.txt is loaded
         And I wait until data/numbers/3.txt is loaded
         # And of course the same assertion as above too
-        Then the following tabs should be open:
+        Then the following tabs should be open in session tree-collapsed:
             """
             - data/numbers/1.txt
               - data/numbers/2.txt (active) (collapsed)
@@ -266,25 +268,26 @@ Feature: Tree tab management
                 - data/numbers/3.txt
             """
 
-    # Same as a test in sessions.feature but tree tabs and the related
-    # settings.
+    # Tabs keep their saved positions whatever the new_position settings.
     Scenario: TreeTabs: Loading a session with tabs.new_position.related=prev
-        When I open data/numbers/1.txt
+        When I run :session-new tree-related
+        And I open data/numbers/1.txt
         And I open data/numbers/2.txt in a new related tab
         And I open data/numbers/3.txt in a new related tab
         And I open data/numbers/4.txt in a new tab
         And I run :tab-focus 2
         And I run :tree-tab-toggle-hide
-        And I run :session-save foo
+        And I run :session-close tree-related
+        And I wait for "Saved session tree-related" in the log
         And I set tabs.new_position.related to prev
         And I set tabs.new_position.tree.new_child to last
         And I set tabs.new_position.tree.new_toplevel to prev
-        And I run :session-load -c foo
+        And I run :session-open tree-related
         And I wait until data/numbers/1.txt is loaded
         And I wait until data/numbers/2.txt is loaded
         And I wait until data/numbers/3.txt is loaded
         And I wait until data/numbers/4.txt is loaded
-        Then the following tabs should be open:
+        Then the following tabs should be open in session tree-related:
           """
           - data/numbers/1.txt
             - data/numbers/2.txt (active) (collapsed)

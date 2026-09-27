@@ -56,6 +56,9 @@ class FakeTabbedBrowser:
     def widgets(self):
         return self._tabs
 
+    def tabs(self, include_hidden=False):
+        return self._tabs
+
     def undo(self):
         pass
 
@@ -1340,6 +1343,9 @@ class _StubTabbedBrowser:
         self.undo_stack = []
 
     def widgets(self):
+        return self._tabs
+
+    def tabs(self, include_hidden=False):
         return self._tabs
 
 

@@ -16,7 +16,7 @@ import pathlib
 import struct
 import urllib.parse
 from typing import Any, TypeAlias
-from collections.abc import MutableMapping, MutableSequence
+from collections.abc import Callable, MutableMapping, MutableSequence
 
 import yaml
 from qutebrowser.qt.core import Qt, QUrl, QPoint, QTimer, QDateTime, QByteArray
@@ -258,18 +258,37 @@ def _serialize_closed_tabs(undo_stack) -> list[list[JsonType]]:
     ]
 
 
+def _serialize_node(node: Any) -> JsonType:
+    return {
+        'parent': node.parent.uid,
+        'children': [child.uid for child in node.children],
+        'collapsed': node.collapsed,
+        'uid': node.uid,
+    }
+
+
 def serialize_window(window) -> JsonType:
     """Serialize a live MainWindow into the session file's window format."""
     tabbed_browser = window.tabbed_browser
+    tree = tabbed_browser.is_treetabbedbrowser
     data: JsonType = {}
     active_window = objects.qapp.activeWindow()
     if getattr(active_window, 'win_id', None) == window.win_id:
         data['active'] = True
     data['geometry'] = bytes(window.saveGeometry())
-    data['tabs'] = [
-        serialize_tab(tab, i == tabbed_browser.widget.currentIndex())
-        for i, tab in enumerate(tabbed_browser.widgets())
-    ]
+    current = tabbed_browser.widget.currentWidget()
+    data['tabs'] = []
+    for tab in tabbed_browser.tabs(include_hidden=True):
+        tab_data = serialize_tab(tab, tab is current)
+        if tree:
+            tab_data['treetab_node_data'] = _serialize_node(tab.node)
+        data['tabs'].append(tab_data)
+    if tree:
+        root = tabbed_browser.widget.tree_root
+        data['treetab_root'] = {
+            'children': [child.uid for child in root.children],
+            'uid': root.uid,
+        }
     closed_tabs = _serialize_closed_tabs(tabbed_browser.undo_stack)
     if closed_tabs:
         data['closed_tabs'] = closed_tabs
@@ -423,7 +442,7 @@ def window_history(window) -> dict[str, bytes]:
             # None for a tab restored without its history file.
             if entry.history is not None and has_history(entry.history):
                 history[entry.tab_id] = entry.history
-    for tab in tabbed_browser.widgets():
+    for tab in tabbed_browser.tabs(include_hidden=True):
         try:
             data = tab_history(tab)
         except browsertab.WebTabError:
@@ -492,7 +511,8 @@ def _live_ids(session) -> set[str]:
     ids = set()
     for win_id in session.windows:
         tabbed_browser = objreg.window_registry[win_id].tabbed_browser
-        ids.update(tab.data.persistent_id for tab in tabbed_browser.widgets())
+        ids.update(tab.data.persistent_id
+                   for tab in tabbed_browser.tabs(include_hidden=True))
         ids.update(entry.tab_id for group in tabbed_browser.undo_stack
                    for entry in group)
     return ids
@@ -610,6 +630,35 @@ def _restore_tab(new_tab, data,  # noqa: C901
         deserialize_tab(new_tab, history)
 
 
+def _restore_tree(tabbed_browser: Any, data: JsonType,
+                  restore: Callable[[int, JsonType, int], Any]) -> None:
+    """Open a tree tab window's saved tabs, rebuilding their tree."""
+    by_uid = {tab['treetab_node_data']['uid']: (i, tab)
+              for i, tab in enumerate(data['tabs'])}
+    root = tabbed_browser.widget.tree_root
+    index = -1
+
+    def restore_node(uid: int) -> Any:
+        nonlocal index
+        index += 1
+        # Popped, so a uid listed twice (hand edits) fails instead of looping.
+        i, tab = by_uid.pop(uid)
+        new_tab = restore(i, tab, index)
+        new_tab.node.parent = root
+        node_data = tab['treetab_node_data']
+        new_tab.node.children = [restore_node(child)
+                                 for child in node_data['children']]
+        new_tab.node.collapsed = node_data['collapsed']
+        return new_tab.node
+
+    for uid in data['treetab_root']['children']:
+        restore_node(uid)
+    if by_uid:
+        raise ValueError(f"{len(by_uid)} tabs are missing from the tab tree")
+    # Collapsing a node above doesn't hide its already opened children.
+    tabbed_browser.widget.tree_tab_update()
+
+
 def restore_window(data: JsonType, session, *,  # noqa: C901
                    show: bool = True):
     """Create a MainWindow in session from saved window data."""
@@ -624,35 +673,46 @@ def restore_window(data: JsonType, session, *,  # noqa: C901
     tabbed_browser = window.tabbed_browser
     tab_to_focus = None
     problems: list[str] = []
+
     # With tabs_are_windows every tab gets its own window, where it would
     # never be shown in this window's tab bar.
     lazy = (config.val.session.lazy_restore and
             not config.val.tabs.tabs_are_windows)
+
+    def restore(i: int, tab: JsonType, idx: int) -> Any:
+        nonlocal tab_to_focus
+        new_tab = tabbed_browser.tabopen(background=False, related=False,
+                                         idx=idx)
+        tab_id = _claim_id(tab.get('id'), used_ids)
+        history = None
+        tab_problems: list[str] = []
+        if tab_id is None:
+            tab_problems.append(_NO_ID)
+        else:
+            new_tab.data.persistent_id = tab_id
+            history = _read_history(session, tab_id, tab_problems)
+        _restore_tab(new_tab, tab, history, lazy=lazy and i != shown)
+        # A single entry has no back history to lose, and its file may
+        # never have been written (see window_history).
+        if len(tab['history']) > 1:
+            problems.extend(tab_problems)
+        if tab.get('active', False):
+            tab_to_focus = new_tab
+        if new_tab.data.pinned:
+            new_tab.set_pinned(True)
+        return new_tab
+
     try:
         tabs = data['tabs']
         # Without an active tab, the last one opened stays current; with
         # several (hand edits), the last one is focused below.
         shown = max((i for i, tab in enumerate(tabs)
                      if tab.get('active', False)), default=len(tabs) - 1)
-        for i, tab in enumerate(tabs):
-            new_tab = tabbed_browser.tabopen(background=False)
-            tab_id = _claim_id(tab.get('id'), used_ids)
-            history = None
-            tab_problems: list[str] = []
-            if tab_id is None:
-                tab_problems.append(_NO_ID)
-            else:
-                new_tab.data.persistent_id = tab_id
-                history = _read_history(session, tab_id, tab_problems)
-            _restore_tab(new_tab, tab, history, lazy=lazy and i != shown)
-            # A single entry has no back history to lose, and its file may
-            # never have been written (see window_history).
-            if len(tab['history']) > 1:
-                problems += tab_problems
-            if tab.get('active', False):
-                tab_to_focus = i
-            if new_tab.data.pinned:
-                new_tab.set_pinned(True)
+        if 'treetab_root' in data and tabbed_browser.is_treetabbedbrowser:
+            _restore_tree(tabbed_browser, data, restore)
+        else:
+            for i, tab in enumerate(tabs):
+                restore(i, tab, i)
         tabbed_browser.undo_stack.extend(
             _restore_closed_tabs(data, session, used_ids, problems))
     # OSError: QtWebEngine refused bytes of its own version, which only
@@ -667,7 +727,7 @@ def restore_window(data: JsonType, session, *,  # noqa: C901
             f"Session {session.name} has an invalid window: "
             f"{type(e).__name__}: {e}")
     if tab_to_focus is not None:
-        tabbed_browser.widget.setCurrentIndex(tab_to_focus)
+        tabbed_browser.widget.setCurrentWidget(tab_to_focus)
     if lazy:
         tabbed_browser.current_tab_changed.connect(load_lazy_history)
     if problems:

@@ -332,6 +332,25 @@ Feature: Saving and loading sessions
           - url: http://localhost:*/data/numbers/1.txt
       """
 
+  # Make sure the new_position.related setting doesn't change the tab order
+  # when reopening a session.
+  Scenario: Reopening a session with tabs.new_position.related=prev
+    When I run :session-new related-order
+    And I open data/numbers/1.txt
+    And I open data/numbers/2.txt in a new tab
+    And I open data/numbers/3.txt in a new tab
+    And I run :session-close related-order
+    And I wait for "Saved session related-order" in the log
+    And I set tabs.new_position.related to prev
+    And I run :session-open related-order
+    And I wait until data/numbers/3.txt is loaded
+    Then the following tabs should be open in session related-order:
+      """
+      - data/numbers/1.txt
+      - data/numbers/2.txt
+      - data/numbers/3.txt (active)
+      """
+
   Scenario: Opening an unknown session
     When I run :session-open inexistent-session
     Then the error "Session inexistent-session not found!" should be shown
