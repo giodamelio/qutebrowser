@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import collections
+import dataclasses
 import datetime
 import logging
 import struct
@@ -10,7 +11,8 @@ import struct
 import pytest
 from qutebrowser.qt.core import QByteArray, QUrl
 
-from qutebrowser.mainwindow import mainwindow, windowsessions, tabbedbrowser
+from qutebrowser.mainwindow import (mainwindow, windowsessions, tabbedbrowser,
+                                    treetabbedbrowser)
 from qutebrowser.misc import historystore, sessionfile
 from qutebrowser.utils import objreg, usertypes
 
@@ -672,6 +674,83 @@ def closed_item(tab_id, url, closed_at, *, index=0, pinned=False,
                                   'title': 'back'})
     return {'id': tab_id, 'index': index, 'pinned': pinned,
             'closed_at': closed_at, 'tab': tab}
+
+
+def test_serialize_closed_tree_tab():
+    tab_id = historystore.new_id()
+    entry = undo_entry(tab_id, 'https://a.example/')
+    tree_entry = treetabbedbrowser._TreeUndoEntry(
+        **{field.name: getattr(entry, field.name)
+           for field in dataclasses.fields(entry)},
+        uid=5, parent_node_uid=2, children_node_uids=[7, 8], local_index=1)
+
+    [[item]] = sessionfile._serialize_closed_tabs(
+        collections.deque([[tree_entry]]))
+
+    assert item['tree'] == {'uid': 5, 'parent': 2, 'children': [7, 8],
+                            'local_index': 1}
+    assert 'tree' not in sessionfile._serialize_closed_tabs(
+        collections.deque([[entry]]))[0][0]
+
+
+def closed_tree_item(tab_id, url, *, uid, parent, children=()):
+    item = closed_item(tab_id, url, '2026-09-25T10:00:00.000+00:00')
+    item['tree'] = {'uid': uid, 'parent': parent, 'children': list(children),
+                    'local_index': 0}
+    return item
+
+
+def test_restore_window_keeps_closed_tabs_place_in_tree(
+        fake_mainwindows, histories, message_mock, monkeypatch):
+    monkeypatch.setattr(FakeTabbedBrowser, 'is_treetabbedbrowser', True)
+    parent_id, child_id = historystore.new_id(), historystore.new_id()
+    # Far above the uids this test process has handed out.
+    SAVED = 10**9  # pylint: disable=invalid-name
+    # Closed with --recursive: the child is undone after its parent.
+    data = {'tabs': [], 'closed_tabs': [[
+        closed_tree_item(child_id, 'https://child.example/', uid=SAVED + 1,
+                         parent=SAVED),
+        closed_tree_item(parent_id, 'https://parent.example/', uid=SAVED,
+                         parent=0, children=[SAVED + 1]),
+    ]]}
+
+    window = restore(data)
+
+    [[child, parent]] = window.tabbed_browser.undo_stack
+    assert isinstance(child, treetabbedbrowser._TreeUndoEntry)
+    assert isinstance(parent, treetabbedbrowser._TreeUndoEntry)
+    assert child.parent_node_uid == parent.uid
+    assert parent.children_node_uids == [child.uid]
+    # Fresh uids, as the saved ones may belong to nodes opened since.
+    assert {child.uid, parent.uid}.isdisjoint({SAVED, SAVED + 1})
+
+
+def test_restore_window_ignores_tree_without_tree_tabs(fake_mainwindows,
+                                                       histories,
+                                                       message_mock):
+    tab_id = historystore.new_id()
+    window = restore({'tabs': [], 'closed_tabs': [[
+        closed_tree_item(tab_id, 'https://a.example/', uid=1, parent=0)]]})
+
+    [[entry]] = window.tabbed_browser.undo_stack
+    assert type(entry) is tabbedbrowser._UndoEntry
+
+
+@pytest.mark.parametrize('tree', [
+    {'uid': '1', 'parent': 0, 'children': [], 'local_index': 0},
+    {'uid': True, 'parent': 0, 'children': [], 'local_index': 0},
+    {'uid': 1, 'parent': 0, 'children': 3, 'local_index': 0},
+    {'uid': 1, 'children': [], 'local_index': 0},
+])
+def test_restore_window_invalid_closed_tree_tab(fake_mainwindows, histories,
+                                                message_mock, monkeypatch,
+                                                tree):
+    monkeypatch.setattr(FakeTabbedBrowser, 'is_treetabbedbrowser', True)
+    item = closed_item(historystore.new_id(), 'https://a.example/',
+                       '2026-09-25T10:00:00.000+00:00')
+    item['tree'] = tree
+    with pytest.raises(sessionfile.SessionFileError):
+        restore({'tabs': [], 'closed_tabs': [[item]]})
 
 
 def test_restore_window_rebuilds_closed_tabs(fake_mainwindows, histories,

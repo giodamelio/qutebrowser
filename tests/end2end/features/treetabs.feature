@@ -608,3 +608,23 @@ Feature: Tree tab management
             - data/numbers/1.txt (active)
               - data/numbers/2.txt
             """
+
+    Scenario: Undoing a tab close after reopening the session
+        When I run :session-new tree-undo
+        And I open data/numbers/1.txt
+        And I open data/numbers/2.txt in a new related tab
+        And I open data/numbers/3.txt in a new tab
+        And I run :tab-focus 2
+        And I run :tab-close
+        And I run :session-close tree-undo
+        And I wait for "Saved session tree-undo" in the log
+        And I run :session-open tree-undo
+        And I wait until data/numbers/3.txt is loaded
+        And I run :undo
+        And I wait until data/numbers/2.txt is loaded
+        Then the following tabs should be open in session tree-undo:
+            """
+            - data/numbers/1.txt
+              - data/numbers/2.txt (active)
+            - data/numbers/3.txt
+            """
