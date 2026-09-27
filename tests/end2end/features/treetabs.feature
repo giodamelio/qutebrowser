@@ -655,3 +655,23 @@ Feature: Tree tab management
               - data/numbers/2.txt
             - data/numbers/3.txt (active)
             """
+
+    Scenario: A dragged tree survives reopening its session
+        When I run :session-new tree-drag
+        And the window of session tree-drag runs :open http://localhost:(port)/data/numbers/1.txt
+        And I wait until data/numbers/1.txt is loaded
+        And the window of session tree-drag runs :open -t -r http://localhost:(port)/data/numbers/2.txt
+        And I wait until data/numbers/2.txt is loaded
+        And the window of session tree-drag runs :open -t http://localhost:(port)/data/numbers/3.txt
+        And I wait until data/numbers/3.txt is loaded
+        And the window of session tree-drag runs :debug-mouse-move -
+        And I run :session-close tree-drag
+        And I wait for "Saved session tree-drag" in the log
+        And I run :session-open tree-drag
+        And I wait until data/numbers/3.txt is loaded
+        Then the following tabs should be open in session tree-drag:
+            """
+            - data/numbers/1.txt
+              - data/numbers/3.txt (active)
+              - data/numbers/2.txt
+            """
