@@ -266,11 +266,30 @@ def test_collapsed(node):
     print('\n'.join(result))
     assert expected == result
 
+    result = [char + str(n)
+              for char, n in node.render(render_collapsed=True)]
+    assert result == [char + str(n)
+                      for char, n in node.render()][:5] + [
+        '  ├─n6',
+        '  │ ├─n7',
+        '  │ ├─n8',
+        '  │ └─n9',
+        '  │   └─n10',
+        '  └─n11',
+    ]
+
     # uncollapse
     to_collapse.collapsed = False
 
     assert any(n for n in node.traverse(render_collapsed=False) if to_collapse
                in n.path[:-1])
+
+
+def test_render_collapsed_is_not_memoized(node):
+    node.children[1].collapsed = True
+    collapsed = node.render()
+    node.render(render_collapsed=True)
+    assert node.render() == collapsed
 
 
 def test_memoization(node):

@@ -180,7 +180,8 @@ def qute_bookmarks(_url: QUrl) -> _HandlerRet:
 @add_handler('tabs')
 def qute_tabs(_url: QUrl) -> _HandlerRet:
     """Handler for qute://tabs. Display information about all open tabs."""
-    tabs: dict[str, list[tuple[str, str, str, bool]]] = collections.defaultdict(list)
+    tabs: dict[str, list[tuple[str, str, str, bool, bool]]] = (
+        collections.defaultdict(list))
     for win_id, window in objreg.window_registry.items():
         if sip.isdeleted(window):
             continue
@@ -189,19 +190,23 @@ def qute_tabs(_url: QUrl) -> _HandlerRet:
                                     window=win_id)
         if getattr(tabbed_browser, 'is_treetabbedbrowser', False):
             # Render the tree structure with ASCII prefixes.
-            for symbol, node in tabbed_browser.widget.tree_root.render():
+            root = tabbed_browser.widget.tree_root
+            for symbol, node in root.render(render_collapsed=True):
                 tab = node.value
                 if tab is None:
                     continue  # root node has no tab
                 if tab.url() not in [QUrl("qute://tabs/"), QUrl("qute://tabs")]:
                     urlstr = tab.url().toDisplayString()
+                    hidden = any(n.collapsed for n in node.path[:-1])
                     tabs[str(win_id)].append(
-                        (symbol, tab.title(), urlstr, node.collapsed))
+                        (symbol[2:], tab.title(), urlstr, node.collapsed,
+                         hidden))
         else:
             for tab in tabbed_browser.widgets():
                 if tab.url() not in [QUrl("qute://tabs/"), QUrl("qute://tabs")]:
                     urlstr = tab.url().toDisplayString()
-                    tabs[str(win_id)].append(('', tab.title(), urlstr, False))
+                    tabs[str(win_id)].append(
+                        ('', tab.title(), urlstr, False, False))
 
     src = jinja.render('tabs.html',
                        title='Tabs',

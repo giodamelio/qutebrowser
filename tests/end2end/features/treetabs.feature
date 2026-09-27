@@ -396,3 +396,11 @@ Feature: Tree tab management
           - about:blank?one
           - about:blank?three (active)
           """
+
+    Scenario: qute://tabs lists tabs hidden under a collapsed tab
+        When I open data/numbers/1.txt
+        And I open data/numbers/2.txt in a new related tab
+        And I run :tab-focus 1
+        And I run :tree-tab-toggle-hide
+        And I open qute://tabs in a new tab
+        Then the page should contain the plaintext "data/numbers/2.txt"
