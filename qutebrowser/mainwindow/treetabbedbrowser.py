@@ -241,6 +241,35 @@ class TreeTabbedBrowser(TabbedBrowser):
             if node.value
         ]
 
+    def tab_labels(self) -> list[tuple[str, browsertab.AbstractTab]]:
+        """Get each tab with the label :tab-select and completion use for it.
+
+        Tabs in the tab bar are labelled with their index, starting with 1.
+        The tabs hidden under a collapsed tab N are N.1, N.2, ... in tree
+        order.
+        """
+        labels = []
+        root = self.widget.tree_root
+        for node in root.traverse(render_collapsed=False):
+            if node is root:
+                continue
+            label = str(self.widget.indexOf(node.value) + 1)
+            labels.append((label, node.value))
+            if node.collapsed:
+                hidden = list(node.traverse(render_collapsed=True))[1:]
+                labels += [(f"{label}.{i}", descendent.value)
+                           for i, descendent in enumerate(hidden, start=1)]
+        return labels
+
+    def reveal_tab(self, tab: browsertab.AbstractTab) -> None:
+        """Expand the collapsed tabs `tab` is hidden under, if any."""
+        ancestors = tab.node.path[:-1]
+        if not any(node.collapsed for node in ancestors):
+            return
+        for node in ancestors:
+            node.collapsed = False
+        self.widget.tree_tab_update()
+
     @pyqtSlot('QUrl')
     @pyqtSlot('QUrl', bool)
     @pyqtSlot('QUrl', bool, bool)

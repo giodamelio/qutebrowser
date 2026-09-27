@@ -253,3 +253,55 @@ class TestPositionTab:
         actual = ",".join([n.value for n in root.traverse()])
         actual = actual[len("root,"):]
         assert actual == expected
+
+
+class TestHiddenTabs:
+    """Test how tabs hidden under collapsed tabs are labelled and revealed."""
+
+    @pytest.fixture
+    def tree(self, mocker, mock_browser):
+        """A tree where two is collapsed, hiding three and four.
+
+        - one
+          - two (collapsed)
+            - three
+              - four
+        - five
+        """
+        root = Node(None)
+        mock_browser.widget.tree_root = root
+        nodes = {}
+        for name, parent in [('one', root), ('two', 'one'), ('three', 'two'),
+                             ('four', 'three'), ('five', root)]:
+            tab = mocker.Mock(name=name)
+            if isinstance(parent, str):
+                parent = nodes[parent]
+            nodes[name] = tab.node = Node(tab, parent=parent)
+        nodes['two'].collapsed = True
+        in_tab_bar = ['one', 'two', 'five']
+        mock_browser.widget.indexOf.side_effect = lambda tab: next(
+            (idx for idx, name in enumerate(in_tab_bar)
+             if nodes[name].value is tab), -1)
+        return nodes
+
+    def test_tab_labels(self, mock_browser, tree):
+        labels = treetabbedbrowser.TreeTabbedBrowser.tab_labels(mock_browser)
+        assert labels == [
+            ('1', tree['one'].value),
+            ('2', tree['two'].value),
+            ('2.1', tree['three'].value),
+            ('2.2', tree['four'].value),
+            ('3', tree['five'].value),
+        ]
+
+    def test_reveal_hidden_tab(self, mock_browser, tree):
+        treetabbedbrowser.TreeTabbedBrowser.reveal_tab(
+            mock_browser, tree['four'].value)
+        assert not any(node.collapsed for node in tree.values())
+        mock_browser.widget.tree_tab_update.assert_called_once_with()
+
+    def test_reveal_shown_tab(self, mock_browser, tree):
+        treetabbedbrowser.TreeTabbedBrowser.reveal_tab(
+            mock_browser, tree['two'].value)
+        assert tree['two'].collapsed
+        mock_browser.widget.tree_tab_update.assert_not_called()

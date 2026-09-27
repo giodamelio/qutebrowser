@@ -7,6 +7,7 @@
 """Command dispatcher for TabbedBrowser."""
 
 import os.path
+import re
 import shlex
 import functools
 import urllib.parse
@@ -463,6 +464,8 @@ class CommandDispatcher:
 
         self._open(tab.url(), tab=True)
         if not keep:
+            # Only tabs in the tab bar can be closed.
+            tabbed_browser.reveal_tab(tab)
             tabbed_browser.close_tab(tab, add_undo=False, transfer=True)
 
     def _tree_tab_give(self, tabbed_browser, keep):
@@ -980,14 +983,12 @@ class CommandDispatcher:
 
         Args:
             index: The [win_id/]index of the tab to be selected. Or a substring
-                   in which case the closest match will be focused.
+                   in which case the closest match will be focused. With
+                   tree tabs, N.M is the Mth tab hidden under collapsed tab N.
         """
         index_parts = index.split('/', 1)
 
-        try:
-            for part in index_parts:
-                int(part)
-        except ValueError:
+        if not re.fullmatch(r'(-?\d+/)?-?\d+(\.\d+)?', index):
             model = miscmodels.tabs()
             model.set_pattern(index)
             if model.count() > 0:
@@ -999,9 +1000,7 @@ class CommandDispatcher:
 
         if len(index_parts) == 2:
             win_id = int(index_parts[0])
-            idx = int(index_parts[1])
         elif len(index_parts) == 1:
-            idx = int(index_parts[0])
             active_win = QApplication.activeWindow()
             if active_win is None:
                 # Not sure how you enter a command without an active window...
@@ -1018,11 +1017,13 @@ class CommandDispatcher:
 
         tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                     window=win_id)
-        if not 0 < idx <= tabbed_browser.widget.count():
+        label = '.'.join(str(int(part)) for part in index_parts[-1].split('.'))
+        tab = dict(tabbed_browser.tab_labels()).get(label)
+        if tab is None:
             raise cmdutils.CommandError(
-                "There's no tab with index {}!".format(idx))
+                "There's no tab with index {}!".format(label))
 
-        return (tabbed_browser, tabbed_browser.widget.widget(idx-1))
+        return (tabbed_browser, tab)
 
     @cmdutils.register(instance='command-dispatcher', scope='window',
                        maxsplit=0)
@@ -1052,6 +1053,7 @@ class CommandDispatcher:
 
         window = tabbed_browser.widget.window()
         mainwindow.raise_window(window)
+        tabbed_browser.reveal_tab(tab)
         tabbed_browser.widget.setCurrentWidget(tab)
 
     @cmdutils.register(instance='command-dispatcher', scope='window')

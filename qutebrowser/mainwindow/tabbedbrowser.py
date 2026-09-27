@@ -342,6 +342,16 @@ class TabbedBrowser(QWidget):
         """
         return self.widgets()
 
+    def tab_labels(self) -> list[tuple[str, browsertab.AbstractTab]]:
+        """Get each tab with the label :tab-select and completion use for it.
+
+        A tab's label is its index in the tab bar, starting with 1.
+        """
+        return [(str(idx + 1), tab) for idx, tab in enumerate(self.widgets())]
+
+    def reveal_tab(self, tab: browsertab.AbstractTab) -> None:
+        """Make sure `tab` is in the tab bar, which it always is here."""
+
     def _update_window_title(self, field=None):
         """Change the window title to match the current tab.
 
