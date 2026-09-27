@@ -3,7 +3,9 @@ Feature: Tree tab management
 
     Background:
         # Open a new tree tab enabled window, close everything else
-        Given I set tabs.tabs_are_windows to false
+        Given I run :debug-close-other-sessions
+        And I delete the sessions and containers earlier scenarios made
+        And I set tabs.tabs_are_windows to false
         And I set tabs.tree_tabs to true
         And I set tabs.position to left
         And I set tabs.width to 30%
