@@ -354,9 +354,10 @@ def str_to_tree(tree_str: str) -> tuple["Node", "Node"]:
         value = parts[0]
         node = Node(value)
 
-        if len(parts) > 1:
-            if parts[1] == "(active)":
-                active = node
+        if "(active)" in parts[1:]:
+            active = node
+        if "(collapsed)" in parts[1:]:
+            node.collapsed = True
 
         if previous_node == root:
             node.parent = root
@@ -399,7 +400,9 @@ def tree_to_str(
         next_indent = indent
     else:
         next_indent = indent + indent_increment
-        lines.append(f"{indent}{node.value}{' (active)' if node == active else ''}")
+        lines.append(f"{indent}{node.value}"
+                     f"{' (active)' if node == active else ''}"
+                     f"{' (collapsed)' if node.collapsed else ''}")
     for child in node.children:
         lines.append(
             tree_to_str(
@@ -694,6 +697,124 @@ def test_move_recursive(description, before, to, after):
     ],
 )
 def test_drag(description, before, to, after):
+    _check_drag(before, to, after)
+
+
+@pytest.mark.parametrize(
+    MoveTestArgs._fields,
+    [
+        MoveTestArgs(
+            description="Drag a tab without children up into a group",
+            before="""
+                one
+                  two
+                three (active)
+                """,
+            to="-",
+            after="""
+                one
+                  three (active)
+                  two
+                """,
+        ),
+        MoveTestArgs(
+            description="Drag a tab down past a collapsed tab",
+            before="""
+                one (active)
+                two (collapsed)
+                  three
+                """,
+            to="+",
+            after="""
+                two (collapsed)
+                  three
+                one (active)
+                """,
+        ),
+        MoveTestArgs(
+            description="Drag a tab up past a collapsed tab",
+            before="""
+                one (collapsed)
+                  two
+                three (active)
+                """,
+            to="-",
+            after="""
+                three (active)
+                one (collapsed)
+                  two
+                """,
+        ),
+        MoveTestArgs(
+            description="Drag a collapsed tab down",
+            before="""
+                one (active) (collapsed)
+                  two
+                three
+                """,
+            to="+",
+            after="""
+                three
+                one (active) (collapsed)
+                  two
+                """,
+        ),
+        MoveTestArgs(
+            description="Drag a collapsed tab up into a group",
+            before="""
+                one
+                  two
+                three (active) (collapsed)
+                  four
+                """,
+            to="-",
+            after="""
+                one
+                  three (active) (collapsed)
+                    four
+                  two
+                """,
+        ),
+        MoveTestArgs(
+            description="Drag a collapsed tab up past its parent",
+            before="""
+                one
+                  two (active) (collapsed)
+                    three
+                  four
+                """,
+            to="-",
+            after="""
+                two (active) (collapsed)
+                  three
+                one
+                  four
+                """,
+        ),
+        MoveTestArgs(
+            description="Drag a tab down past its collapsed child",
+            before="""
+                one (active)
+                  two (collapsed)
+                    three
+                  four
+                """,
+            to="+",
+            after="""
+                two (collapsed)
+                  three
+                one (active)
+                  four
+                """,
+        ),
+    ],
+)
+def test_drag_collapsed_and_leaves(description, before, to, after):
+    """A collapsed tab drags like a tab without children, taking its own."""
+    _check_drag(before, to, after)
+
+
+def _check_drag(before, to, after):
     before, after = textwrap.dedent(before), textwrap.dedent(after).strip()
     tree_root, active = str_to_tree(before)
 

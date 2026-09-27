@@ -419,13 +419,10 @@ class Node(Generic[T]):
         else:
             raise TreeError('direction argument must be one of: "-" or "+"')
 
-        # TODO:
-        # * check with dragging onto collapsed nodes, they should have
-        #   the same behaviour as no-children nodes: https://github.com/brimdata/react-arborist/issues/181
-        # * move this logic into notree? At least so it's easier to unit test?
-        # * review comments (and logic) below to make sure it's clear,
-        #   concise and accurate
-        # * look for opportunities to consolidate between branches
+        # A collapsed node moves like a node without children, taking its
+        # hidden children along: https://github.com/brimdata/react-arborist/issues/181
+        def has_shown_children(node: 'Node[T]') -> bool:
+            return bool(node.children) and not node.collapsed
 
         # The general strategy here is to go with the positioning that
         # QTabBar uses and try to make that work. QTabBar shows all the nodes
@@ -434,51 +431,53 @@ class Node(Generic[T]):
         # things reality.
 
         if bottom_node == top_node.parent:
-            log.notree.info("moving along a branch")
+            log.notree.debug("moving along a branch")
             # Nodes are parent and child, swap them around. First move the
             # top node up to be a sibling of the bottom node.
             bottom_node.parent.insert_child(top_node, before=bottom_node)
-            # Then swap children to keep them in the same place.
-            top_node.children, bottom_node.children = bottom_node.children, top_node.children
-            # Then move the bottom node down.
-            top_node.insert_child(bottom_node, idx=0)
+            if not top_node.collapsed:
+                # Then swap children to keep them in the same place.
+                top_node.children, bottom_node.children = bottom_node.children, top_node.children
+                # Then move the bottom node down.
+                top_node.insert_child(bottom_node, idx=0)
         elif (
             top_node in bottom_node.parent.children
             # If moving down and the displaced node has children, we are
             # going into a new tree so skip this branch.
-            and not (moving_down and top_node.children)
+            and not (moving_down and has_shown_children(top_node))
         ):
-            log.notree.info("moving between siblings")
+            log.notree.debug("moving between siblings")
             # Swap nodes in sibling list.
             bottom_node.parent.insert_child(top_node, before=bottom_node)
 
-            # If moving up, the top node (the one that's moving) could
-            # have children. Move them down to the bottom node to keep
-            # them in the same place.
-            top_children = top_node.children
-            top_node.children = []
-            bottom_node.children = top_children
+            if not moving_down and has_shown_children(top_node):
+                # The top node is the one moving, move its children down to
+                # the bottom node to keep them in the same place.
+                top_children = top_node.children
+                top_node.children = []
+                bottom_node.children = top_children
         elif moving_down:
-            log.notree.info("moving into top of new tree")
+            log.notree.debug("moving into top of new tree")
             # Moving from a leaf node in one tree, to the top of a new
             # one. If the new tree is just a single node, insert the
             # bottom node as a sibling. Or if the new tree has children,
             # insert the bottom node as the first child.
-            if top_node.children:
+            if has_shown_children(top_node):
                 top_node.insert_child(bottom_node, idx=0)
             else:
                 top_node.parent.insert_child(bottom_node, after=top_node)
         else:
-            log.notree.info("moving into bottom of new tree")
+            log.notree.debug("moving into bottom of new tree")
             # Moving from the top of a tree into a leaf node of a new one.
             # If the top node has children, promote the first child to
             # take the top node's place in the old tree.
             # This "promote a single node" logic is also in
             # `TreeTabbedBrowser._remove_tab()`.
-            top_children = top_node.children
-            first_child = top_children[0]
-            for child in top_children[1:]:
-                child.parent = first_child
+            if has_shown_children(top_node):
+                top_children = top_node.children
+                first_child = top_children[0]
+                for child in top_children[1:]:
+                    child.parent = first_child
+                top_node.parent.insert_child(first_child, after=top_node)
 
-            top_node.parent.insert_child(first_child, after=top_node)
             bottom_node.parent.insert_child(top_node, before=bottom_node)
