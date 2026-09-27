@@ -7,6 +7,7 @@
 import collections
 import dataclasses
 import functools
+from typing import Any
 from qutebrowser.qt.core import pyqtSlot, QUrl
 
 from qutebrowser.config import config
@@ -31,7 +32,7 @@ class _TreeUndoEntry(_UndoEntry):
 
         root = tab.node.path[0]
         uid: int | None = self.uid
-        if root.get_descendent_by_uid(uid) not in [None, tab.node]:
+        if root.get_descendent_by_uid(self.uid) not in [None, tab.node]:
             # Two nodes with one uid would make the lookups below find the
             # wrong one (#8274).
             uid = None
@@ -65,7 +66,7 @@ class _TreeUndoEntry(_UndoEntry):
         tab: browsertab.AbstractTab,
         idx: int,
         recursing: bool = False,
-    ) -> "_TreeUndoEntry | list[_TreeUndoEntry]":
+    ) -> "_TreeUndoEntry | list[_UndoEntry] | None":
         """Make a TreeUndoEntry from a Node."""
         node = tab.node
         url = node.value.url()
@@ -80,11 +81,12 @@ class _TreeUndoEntry(_UndoEntry):
                 for descendent in
                 node.traverse(notree.TraverseOrder.POST_R)
             ]
-            entries = [entry for entry in entries if entry]
-            return entries
+            return [entry for entry in entries
+                    if isinstance(entry, _UndoEntry)]
 
         pinned = node.value.data.pinned
         uid = node.uid
+        assert node.parent is not None, node
         parent_uid = node.parent.uid
         if recursing:
             # Recursively removed nodes will never have any existing children
@@ -121,19 +123,20 @@ class TreeTabbedBrowser(TabbedBrowser):
     is_treetabbedbrowser = True
     _undo_class = _TreeUndoEntry
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._tree_tab_child_rel_idx = 0
         self._tree_tab_sibling_rel_idx = 0
         self._tree_tab_toplevel_rel_idx = 0
 
-    def _create_tab_widget(self):
+    def _create_tab_widget(self) -> TreeTabWidget:
         """Return the tab widget that can display a tree structure."""
         return TreeTabWidget(self._win_id, parent=self)
 
     def _remove_tab(  # noqa: C901
-            self, tab, *, add_undo=True, new_undo=True, crashed=False,
-            recursive=False):
+            self, tab: browsertab.AbstractTab, *, add_undo: bool = True,
+            new_undo: bool = True, crashed: bool = False,
+            recursive: bool = False) -> None:
         """Handle children positioning after a tab is removed."""
         if tab.node.parent is None:
             # Already removed, e.g. its page asked to close twice (#8414).
@@ -167,6 +170,7 @@ class TreeTabbedBrowser(TabbedBrowser):
 
         node = tab.node
         parent = node.parent
+        assert parent is not None, node  # Checked above.
         current_tab = self.current_tab()
 
         # Override tabs.select_on_remove behavior to be tree aware.
@@ -239,7 +243,7 @@ class TreeTabbedBrowser(TabbedBrowser):
 
         self.widget.tree_tab_update()
 
-    def undo(self, depth=1):
+    def undo(self, depth: int = 1) -> None:
         """Undo removing of a tab or tabs."""
         super().undo(depth)
         self.widget.tree_tab_update()
@@ -296,10 +300,10 @@ class TreeTabbedBrowser(TabbedBrowser):
     @pyqtSlot('QUrl', bool)
     @pyqtSlot('QUrl', bool, bool)
     def tabopen(
-            self, url: QUrl = None,
-            background: bool = None,
+            self, url: QUrl | None = None,
+            background: bool | None = None,
             related: bool = True,
-            idx: int = None,
+            idx: int | None = None,
             sibling: bool = False,
     ) -> browsertab.AbstractTab:
         """Open a new tab with a given url.
@@ -366,14 +370,14 @@ class TreeTabbedBrowser(TabbedBrowser):
 
     def _position_tab(  # pylint: disable=too-many-positional-arguments
         self,
-        cur_node: notree.Node,
-        new_node: notree.Node,
+        cur_node: notree.Node[browsertab.AbstractTab],
+        new_node: notree.Node[browsertab.AbstractTab],
         pos: str,
-        parent: notree.Node,
+        parent: notree.Node[browsertab.AbstractTab],
         sibling: bool = False,
         related: bool = True,
-        background: bool = None,
-        idx: int = None,
+        background: bool | None = None,
+        idx: int | None = None,
     ) -> None:
         toplevel = not sibling and not related
         siblings = list(parent.children)
@@ -418,17 +422,17 @@ class TreeTabbedBrowser(TabbedBrowser):
         if not background:
             self._reset_stack_counters()
 
-    def _reset_stack_counters(self):
+    def _reset_stack_counters(self) -> None:
         self._tree_tab_child_rel_idx = 0
         self._tree_tab_sibling_rel_idx = 0
         self._tree_tab_toplevel_rel_idx = 0
 
     @pyqtSlot(int)
-    def _on_current_changed(self, idx):
+    def _on_current_changed(self, idx: int) -> None:
         super()._on_current_changed(idx)
         self._reset_stack_counters()
 
-    def cycle_hide_tab(self, node):
+    def cycle_hide_tab(self, node: notree.Node[browsertab.AbstractTab]) -> None:
         """Utility function for tree_tab_cycle_hide command."""
         # height = node.height  # height is always rel_height
         if node.collapsed:
@@ -437,10 +441,11 @@ class TreeTabbedBrowser(TabbedBrowser):
                 descendent.collapsed = False
             return
 
-        def rel_depth(n):
+        def rel_depth(n: notree.Node[browsertab.AbstractTab]) -> int:
             return n.depth - node.depth
 
-        levels: dict[int, list] = collections.defaultdict(list)
+        levels: dict[int, list[notree.Node[browsertab.AbstractTab]]] = (
+            collections.defaultdict(list))
         for d in node.traverse(render_collapsed=False):
             r_depth = rel_depth(d)
             levels[r_depth].append(d)

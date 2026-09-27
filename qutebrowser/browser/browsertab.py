@@ -1060,10 +1060,10 @@ class AbstractTab(QWidget):
             self, parent=self)
         self.backend: usertypes.Backend | None = None
 
-        if parent is not None and isinstance(parent, TreeTabWidget):
-            self.node: AbstractTab = Node(self, parent=parent.tree_root)
-        else:
-            self.node: AbstractTab = Node(self, parent=None)
+        self.node: Node[AbstractTab] = Node(
+            self,
+            parent=(parent.tree_root if isinstance(parent, TreeTabWidget)
+                    else None))
 
         # If true, this tab has been requested to be removed (or is removed).
         self.pending_removal = False

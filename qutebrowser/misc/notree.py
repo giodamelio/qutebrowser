@@ -125,7 +125,7 @@ class Node(Generic[T]):
         return self.__parent
 
     @parent.setter
-    def parent(self, value: 'Node[T]') -> None:
+    def parent(self, value: 'Node[T] | None') -> None:
         """Set parent property. Also adds self to value.children."""
         # pylint: disable=protected-access
         assert (value is None or isinstance(value, Node))
@@ -179,7 +179,9 @@ class Node(Generic[T]):
             assert 0 <= idx <= len(children)
             children.insert(idx, node)
         else:
-            rel_idx = children.index(before or after)
+            anchor = before if before is not None else after
+            assert anchor is not None
+            rel_idx = children.index(anchor)
             if after:
                 rel_idx += 1
             children.insert(rel_idx, node)
@@ -263,7 +265,7 @@ class Node(Generic[T]):
         return list(result)
 
     def traverse(self, order: TraverseOrder = TraverseOrder.PRE,
-                 render_collapsed: bool = True) -> Iterable['Node']:
+                 render_collapsed: bool = True) -> Iterable['Node[T]']:
         """Generator for `self` and all descendants.
 
         Args:
@@ -371,7 +373,7 @@ class Node(Generic[T]):
 
     def __repr__(self) -> str:
         try:
-            value = str(self.value.url().url())  # type: ignore
+            value = str(self.value.url().url())  # type: ignore[attr-defined]
         except Exception:
             value = str(self.value)
         return "<Node -%d- '%s'>" % (self.__uid, value)
@@ -380,12 +382,18 @@ class Node(Generic[T]):
         # return "<Node '%s'>" % self.value
         return str(self.value)
 
-    def check_can_move(self, to: "Node") -> None:
+    def checked_parent(self) -> 'Node[T]':
+        """Get the parent, which the moving code below needs."""
+        if self.parent is None:
+            raise TreeError('Node has no parent.')
+        return self.parent
+
+    def check_can_move(self, to: 'Node[T]') -> None:
         """Raise a TreeError if our moving logic doesn't support the requested operation."""
         if self in to.path:
             raise TreeError("Can't move tab to a descendent of itself")
 
-    def move_recursive(self, to: "Node") -> None:
+    def move_recursive(self, to: 'Node[T]') -> None:
         """Move this tab and its children to the position of `to`."""
         # The logic below doesn't currently handle these cases.
         self.check_can_move(to)
@@ -393,9 +401,9 @@ class Node(Generic[T]):
         nodes = list(self.path[0].traverse(render_collapsed=False))[1:]
         from_idx = nodes.index(self)
         if nodes.index(to) > from_idx:
-            to.parent.insert_child(self, after=to)
+            to.checked_parent().insert_child(self, after=to)
         else:
-            to.parent.insert_child(self, before=to)
+            to.checked_parent().insert_child(self, before=to)
 
     def drag(self, direction: str) -> None:
         """Move this tab a single place in the list of nodes."""
@@ -434,21 +442,21 @@ class Node(Generic[T]):
             log.notree.debug("moving along a branch")
             # Nodes are parent and child, swap them around. First move the
             # top node up to be a sibling of the bottom node.
-            bottom_node.parent.insert_child(top_node, before=bottom_node)
+            bottom_node.checked_parent().insert_child(top_node, before=bottom_node)
             if not top_node.collapsed:
                 # Then swap children to keep them in the same place.
                 top_node.children, bottom_node.children = bottom_node.children, top_node.children
                 # Then move the bottom node down.
                 top_node.insert_child(bottom_node, idx=0)
         elif (
-            top_node in bottom_node.parent.children
+            top_node in bottom_node.checked_parent().children
             # If moving down and the displaced node has children, we are
             # going into a new tree so skip this branch.
             and not (moving_down and has_shown_children(top_node))
         ):
             log.notree.debug("moving between siblings")
             # Swap nodes in sibling list.
-            bottom_node.parent.insert_child(top_node, before=bottom_node)
+            bottom_node.checked_parent().insert_child(top_node, before=bottom_node)
 
             if not moving_down and has_shown_children(top_node):
                 # The top node is the one moving, move its children down to
@@ -465,7 +473,7 @@ class Node(Generic[T]):
             if has_shown_children(top_node):
                 top_node.insert_child(bottom_node, idx=0)
             else:
-                top_node.parent.insert_child(bottom_node, after=top_node)
+                top_node.checked_parent().insert_child(bottom_node, after=top_node)
         else:
             log.notree.debug("moving into bottom of new tree")
             # Moving from the top of a tree into a leaf node of a new one.
@@ -478,6 +486,6 @@ class Node(Generic[T]):
                 first_child = top_children[0]
                 for child in top_children[1:]:
                     child.parent = first_child
-                top_node.parent.insert_child(first_child, after=top_node)
+                top_node.checked_parent().insert_child(first_child, after=top_node)
 
-            bottom_node.parent.insert_child(top_node, before=bottom_node)
+            bottom_node.checked_parent().insert_child(top_node, before=bottom_node)

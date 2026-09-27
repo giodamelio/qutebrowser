@@ -405,7 +405,7 @@ def test_drag_several_places_at_once(mocker):
         tabs[name] = mocker.Mock(name=name)
         tabs[name].node = Node(tabs[name], parent=root)
     tab_bar = [tabs['two'], tabs['three'], tabs['one']]
-    widget._tab_by_idx.side_effect = tab_bar.__getitem__
+    widget._tree_tab.side_effect = tab_bar.__getitem__
     widget.tabBar.return_value.drag_in_progress = True
 
     # QTabBar passes the indices backwards while dragging.
