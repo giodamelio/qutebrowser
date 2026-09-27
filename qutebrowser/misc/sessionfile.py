@@ -8,6 +8,7 @@
 The tab serialization is upstream's, moved here from misc/sessions.py.
 """
 
+import collections
 import copy
 import dataclasses
 import datetime
@@ -22,7 +23,7 @@ import yaml
 from qutebrowser.qt.core import Qt, QUrl, QPoint, QTimer, QDateTime, QByteArray
 
 from qutebrowser.config import config
-from qutebrowser.misc import historystore, objects
+from qutebrowser.misc import historystore, notree, objects
 from qutebrowser.utils import log, message, objreg, qtutils, utils
 
 
@@ -239,23 +240,35 @@ def serialize_tab(tab, active):
     return data
 
 
+def _serialize_closed_tab(entry: Any) -> JsonType:
+    data: JsonType = {
+        'id': entry.tab_id,
+        'index': entry.index,
+        'pinned': entry.pinned,
+        'closed_at': entry.created_at.astimezone(
+            datetime.timezone.utc).isoformat(timespec='milliseconds'),
+        'tab': entry.tab,
+    }
+    # tabbedbrowser imports this module.
+    from qutebrowser.mainwindow import treetabbedbrowser
+    if isinstance(entry, treetabbedbrowser._TreeUndoEntry):  # pylint: disable=protected-access
+        data['tree'] = {
+            'uid': entry.uid,
+            'parent': entry.parent_node_uid,
+            'children': entry.children_node_uids,
+            'local_index': entry.local_index,
+        }
+    return data
+
+
 def _serialize_closed_tabs(undo_stack) -> list[list[JsonType]]:
     """Serialize a window's :undo stack, newest first (§21.3).
 
     The stack is a deque capped by tabs.undo_stack_size, so it already
     holds only what that setting keeps.
     """
-    return [
-        [{
-            'id': entry.tab_id,
-            'index': entry.index,
-            'pinned': entry.pinned,
-            'closed_at': entry.created_at.astimezone(
-                datetime.timezone.utc).isoformat(timespec='milliseconds'),
-            'tab': entry.tab,
-        } for entry in group]
-        for group in reversed(undo_stack)
-    ]
+    return [[_serialize_closed_tab(entry) for entry in group]
+            for group in reversed(undo_stack)]
 
 
 def _serialize_node(node: Any) -> JsonType:
@@ -365,11 +378,35 @@ def _closed_time(value: Any) -> datetime.datetime:
     return value.astimezone().replace(tzinfo=None)
 
 
-def _restore_closed_tabs(data: JsonType, session, used_ids: set[str],
-                         problems: list[str]) -> list[list[Any]]:
-    """Rebuild a window's :undo stack, oldest first, from closed_tabs."""
+def _tree_fields(item: JsonType,
+                 uids: MutableMapping[int, int]) -> dict[str, Any]:
+    """Get a closed tree tab's _TreeUndoEntry fields, with uids mapped."""
+    tree = item['tree']
+    ints = [tree['uid'], tree['parent'], tree['local_index'],
+            *tree['children']]
+    # bool is an int, but never a uid.
+    if not all(isinstance(value, int) and not isinstance(value, bool)
+               for value in ints):
+        raise TypeError(f"invalid closed tab {item!r}")
+    return {
+        'uid': uids[tree['uid']],
+        'parent_node_uid': uids[tree['parent']],
+        'children_node_uids': [uids[child] for child in tree['children']],
+        'local_index': tree['local_index'],
+    }
+
+
+def _restore_closed_tabs(  # noqa: C901
+        data: JsonType, session, used_ids: set[str], problems: list[str],
+        uids: MutableMapping[int, int] | None = None) -> list[list[Any]]:
+    """Rebuild a window's :undo stack, oldest first, from closed_tabs.
+
+    Args:
+        uids: For a tree tab window, the restored uid for each saved node
+              uid. Closed tabs then keep their place in the tree.
+    """
     # tabbedbrowser imports this module.
-    from qutebrowser.mainwindow import tabbedbrowser
+    from qutebrowser.mainwindow import tabbedbrowser, treetabbedbrowser
     groups = []
     for group in data.get('closed_tabs', []):
         entries = []
@@ -395,15 +432,22 @@ def _restore_closed_tabs(data: JsonType, session, used_ids: set[str],
             # As for open tabs in restore_window.
             if len(tab_data['history']) > 1:
                 problems += tab_problems
-            entries.append(tabbedbrowser._UndoEntry(  # pylint: disable=protected-access
-                url=_entry_url(_active_entry(tab_data['history'])),
-                history=(None if history is None
-                         else historystore.Snapshot(history)),
-                index=index,
-                pinned=pinned,
-                created_at=_closed_time(item['closed_at']),
-                tab_id=tab_id,
-                tab=tab_data))
+            fields = {
+                'url': _entry_url(_active_entry(tab_data['history'])),
+                'history': (None if history is None
+                            else historystore.Snapshot(history)),
+                'index': index,
+                'pinned': pinned,
+                'created_at': _closed_time(item['closed_at']),
+                'tab_id': tab_id,
+                'tab': tab_data,
+            }
+            if uids is not None and 'tree' in item:
+                entries.append(treetabbedbrowser._TreeUndoEntry(  # pylint: disable=protected-access
+                    **fields, **_tree_fields(item, uids)))
+            else:
+                entries.append(tabbedbrowser._UndoEntry(  # pylint: disable=protected-access
+                    **fields))
         groups.append(entries)
     groups.reverse()
     return groups
@@ -631,11 +675,17 @@ def _restore_tab(new_tab, data,  # noqa: C901
 
 
 def _restore_tree(tabbed_browser: Any, data: JsonType,
-                  restore: Callable[[int, JsonType, int], Any]) -> None:
-    """Open a tree tab window's saved tabs, rebuilding their tree."""
+                  restore: Callable[[int, JsonType, int], Any],
+                  uids: MutableMapping[int, int]) -> None:
+    """Open a tree tab window's saved tabs, rebuilding their tree.
+
+    Args:
+        uids: Filled with the restored uid for each saved node uid.
+    """
     by_uid = {tab['treetab_node_data']['uid']: (i, tab)
               for i, tab in enumerate(data['tabs'])}
     root = tabbed_browser.widget.tree_root
+    uids[data['treetab_root']['uid']] = root.uid
     index = -1
 
     def restore_node(uid: int) -> Any:
@@ -644,6 +694,7 @@ def _restore_tree(tabbed_browser: Any, data: JsonType,
         # Popped, so a uid listed twice (hand edits) fails instead of looping.
         i, tab = by_uid.pop(uid)
         new_tab = restore(i, tab, index)
+        uids[uid] = new_tab.node.uid
         new_tab.node.parent = root
         node_data = tab['treetab_node_data']
         new_tab.node.children = [restore_node(child)
@@ -708,13 +759,17 @@ def restore_window(data: JsonType, session, *,  # noqa: C901
         # several (hand edits), the last one is focused below.
         shown = max((i for i, tab in enumerate(tabs)
                      if tab.get('active', False)), default=len(tabs) - 1)
-        if 'treetab_root' in data and tabbed_browser.is_treetabbedbrowser:
-            _restore_tree(tabbed_browser, data, restore)
+        uids: MutableMapping[int, int] | None = None
+        if tabbed_browser.is_treetabbedbrowser:
+            # Uids nothing open has, like closed tabs', get unused ones.
+            uids = collections.defaultdict(lambda: next(notree.uid_gen))
+        if uids is not None and 'treetab_root' in data:
+            _restore_tree(tabbed_browser, data, restore, uids)
         else:
             for i, tab in enumerate(tabs):
                 restore(i, tab, i)
         tabbed_browser.undo_stack.extend(
-            _restore_closed_tabs(data, session, used_ids, problems))
+            _restore_closed_tabs(data, session, used_ids, problems, uids))
     # OSError: QtWebEngine refused bytes of its own version, which only
     # a corrupt file can explain (§21.5).
     except (KeyError, TypeError, ValueError, AttributeError, OSError) as e:
