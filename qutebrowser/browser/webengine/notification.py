@@ -362,9 +362,10 @@ class NotificationBridgePresenter(QObject):
     def _focus_first_matching_tab(self, notification: "QWebEngineNotification") -> None:
         for win_id in objreg.window_registry:
             tabbedbrowser = objreg.get("tabbed-browser", window=win_id, scope="window")
-            for idx, tab in enumerate(tabbedbrowser.widgets()):
+            for tab in tabbedbrowser.tabs(include_hidden=True):
                 if tab.url().matches(notification.origin(), QUrl.UrlFormattingOption.RemovePath):
-                    tabbedbrowser.widget.setCurrentIndex(idx)
+                    tabbedbrowser.reveal_tab(tab)
+                    tabbedbrowser.widget.setCurrentWidget(tab)
                     return
         log.misc.debug(f"No matching tab found for {notification.origin()}")
 
