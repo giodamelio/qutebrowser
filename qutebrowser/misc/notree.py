@@ -190,23 +190,28 @@ class Node(Generic[T]):
         for node in self.path:
             node.__modified = True  # pylint: disable=protected-access,unused-private-member
 
-    def render(self) -> list[tuple[str, 'Node[T]']]:
+    def render(
+        self, render_collapsed: bool = False,
+    ) -> list[tuple[str, 'Node[T]']]:
         """Render a tree with ascii symbols.
 
         Tabs appear in the same order as in traverse() with TraverseOrder.PRE
         Args:
-            node; the root of the tree to render
+            render_collapsed: whether to render children of collapsed nodes
 
         Return: list of tuples where the first item is the symbol,
                 and the second is the node it refers to
         """
-        if not self.__modified and self.__rendered is not None:
+        # Only the tab bar's rendering is cached, it is asked for on every
+        # title update.
+        if (not render_collapsed and not self.__modified and
+                self.__rendered is not None):
             return self.__rendered
 
         result = [('', self)]
         for child in self.children:
             if child.children:
-                subtree = child.render()
+                subtree = child.render(render_collapsed)
                 if child is not self.children[-1]:
                     subtree = [(PIPE + ' ' + c, n) for c, n in subtree]
                     char = INTERSECTION
@@ -214,7 +219,7 @@ class Node(Generic[T]):
                     subtree = [('  ' + c, n) for c, n in subtree]
                     char = CORNER
                 subtree[0] = (char, subtree[0][1])
-                if child.collapsed:
+                if child.collapsed and not render_collapsed:
                     result += [subtree[0]]
                 else:
                     result += subtree
@@ -222,8 +227,9 @@ class Node(Generic[T]):
                 result.append((CORNER, child))
             else:
                 result.append((INTERSECTION, child))
-        self.__modified = False
-        self.__rendered = list(result)
+        if not render_collapsed:
+            self.__modified = False
+            self.__rendered = list(result)
         return list(result)
 
     def traverse(self, order: TraverseOrder = TraverseOrder.PRE,

@@ -21,6 +21,10 @@ h1 {
     font-style: italic;
 }
 
+tr.hidden a {
+    color: #888;
+}
+
 th {
     text-align: left;
 }
@@ -49,8 +53,8 @@ details {
 <h2>Window {{ win_id }}</h2>
 <table class="tabs_win{{win_id}}">
     <tbody>
-    {% for symbol, name, url, collapsed in tabs %}
-    <tr>
+    {% for symbol, name, url, collapsed, hidden in tabs %}
+    <tr{% if hidden %} class="hidden"{% endif %}>
         <td class="tree-symbol">{{symbol}}</td>
         <td class="name"><a href="{{url}}">{{name}}</a>{% if collapsed %} <span class="collapsed">[collapsed]</span>{% endif %}</td>
         <td class="url"><a href="{{url}}">{{url}}</a></td>
@@ -62,7 +66,7 @@ details {
 <details>
     <summary>Raw list</summary>
 <code>
-{% for win_id, tabs in tab_list_by_window.items() %}{% for symbol, name, url, collapsed in tabs %}
+{% for win_id, tabs in tab_list_by_window.items() %}{% for symbol, name, url, collapsed, hidden in tabs %}
 {{url}}</br>{% endfor %}
 {% endfor %}
 </code>
