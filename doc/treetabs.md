@@ -5,9 +5,8 @@
 Tree style tabs allow you to group and manage related tabs together. Related
 tabs will be shown in a hierarchical fashion in the tab bar when it is on the
 left or right side of the browser window. It can be enabled by setting
-`tabs.tree_tabs` to `true`. That setting only applies to new windows created
-after it is enabled (including via saving and loading a session or
-`:restart`).
+`tabs.tree_tabs` to `true` and restarting qutebrowser, for example with
+`:restart`.
 
 ![](img/treetabs/tree_tabs_overview_detail.png)
 
@@ -26,15 +25,24 @@ When a tab is being opened it will be classified as one of *unrelated*
 
 ## Enabling Tree Tabs
 
-TODO: more words here
+Set `tabs.tree_tabs` to `true`, then restart. Tree tabs work best with the tab
+bar on the left or right (`tabs.position`), where each tab gets its own row.
 
-* `tabs.tree_tabs`
-* check default settings: title format, padding, elide
-* steps to take when downgrading if you don't want to lose settings
+The tab bar doesn't draw the tree itself. The tree is drawn with line
+characters at the start of each tab's title, so a few other settings need to
+fit:
+
+* `tabs.title.format` needs `{tree}{collapsed}` at its start. It is in the
+  default value; if you changed the setting, add it back.
+* `tabs.padding` needs 0 for `top` and `bottom`, or the lines don't join up.
+* `tabs.title.elide` must not be `left`, or the tree is the part cut off.
+
+To go back to a version without tree tabs, first remove `{tree}` and
+`{collapsed}` from `tabs.title.format`, `tabs.title.format_pinned` and
+`window.title_format`, as other versions don't know those fields. Sessions
+saved with tree tabs load without the tree in those versions.
 
 ## Manipulating the Tree
-
-todo: add animated illustrations?
 
 You can change how tabs relate to each other after they are created too.
 
@@ -51,9 +59,12 @@ You can change how tabs relate to each other after they are created too.
   `:tree-tab-promote` and `:tree-tab-demote`
 * `:tab-give --recursive` will move a tab and its children to another window.
   They will be placed at the top level.
-* Some methods of moving tabs do *not* yet understand tab groups, these are:
-    * `:tab-take`
-    * moving tabs with a mouse or other pointer
+* Dragging a tab with the mouse moves only that tab, one place at a time, so
+  it walks through the tree: dragging it down past a tab with children makes
+  it that tab's first child, dragging it further moves it past each child in
+  turn. Its own children stay where they were. A collapsed tab moves like a
+  tab without children and takes its hidden children with it.
+* `:tab-take` takes a single tab, not its children.
 
 Other pre-existing commands that understand tab groups are:
 
@@ -77,9 +88,13 @@ commands introduced to take advantage of the tab grouping feature.
   `--related` argument. The placeholder tab contains an ascii art picture of a
   tree. The title of the tab comes from the URL path.
 * `:tree-tab-toggle-hide` will collapse, or reveal, a tab group, which will
-  hide any children tabs from the hierarchy shown in the tab bar as well as
-  making children unelectable via `:tab-focus`, `tab-select` and `:tab-take`.
-  The tabs will still be running in the background.
+  hide any children tabs from the hierarchy shown in the tab bar. The tabs
+  will still be running in the background. Hidden tabs have no tab bar
+  number, so `:tab-focus` can't reach them, but `:tab-select`, `:tab-take`
+  and their completion list them as `N.1`, `N.2`, ... in tree order, where
+  `N` is the collapsed tab they are hidden under. Selecting or taking one
+  expands the tabs it is hidden under. `qute://tabs` lists hidden tabs too,
+  greyed out.
 * `:tree-tab-cycle-hide` will hide successive levels of a tab's hierarchy of
   children. For example, the first time you run it will hide the outermost
   generation of leaf nodes, the next time will hide the next level up and so
@@ -94,9 +109,9 @@ There are some existing settings that will have modified behavior when tree
 tabs are enabled:
 
 * `tabs.new_position.related`: this is essentially replaced by
-  `tabs.new_position.new_child`
+  `tabs.new_position.tree.new_child`
 * `tabs.new_position.unrelated`: this is essentially replaced by
-  `tabs.new_position.new_toplevel`
+  `tabs.new_position.tree.new_toplevel`
 * the settings `tabs.title.format`, `tabs.title.format_pinned` and
   `window.title_format` have gained two new template variables: `{tree}` and
   `{collapsed}`. These are for displaying the tree structure in the tab bar and
@@ -108,19 +123,18 @@ the tree structure as a result of various operations. All of these settings
 accept the options `first`, `last`, `next` or `prev`; apart from `new_child`
 and `demote` which only accept `first` or `last`.
 
-* `tabs.new_position.promote`
-* `tabs.new_position.demote`
-* `tabs.new_position.new_toplevel`
-* `tabs.new_position.new_sibling`
-* `tabs.new_position.new_child`
+* `tabs.new_position.tree.promote`
+* `tabs.new_position.tree.demote`
+* `tabs.new_position.tree.new_toplevel`
+* `tabs.new_position.tree.new_sibling`
+* `tabs.new_position.tree.new_child`
 
 ## Bindings
 
 There are various new default bindings introduced to make accessing the new
-and changed commands easy. They all start with the letter `z`:
-
-TODO: more words here? Are any of these bindings analogous to existing
-ones? Any theme to them?
+and changed commands easy. They all start with the letter `z`, like vim's fold
+commands, which tab groups resemble; `za` toggles a group like `za` toggles a
+fold. Upper and lower case pairs mirror each other, like `zH` and `zL`.
 
 * `zH`: `tree-tab-promote`
 * `zL`: `tree-tab-demote`
@@ -212,8 +226,23 @@ them quite complex and with little shared with the existing code paths. Common
 themes beyond handling new arguments are dealing with recursive operations and
 collapsed nodes.
 
-something something sessions.py
+Dragging tabs with the mouse is handled by `TreeTabWidget.on_tab_moved()`.
+QTabBar has already moved the tab by the time it emits `tabMoved`, so the
+handler moves the tab's node to match, using `Node.drag()` for mouse drags
+and `Node.move_recursive()` for everything else.
 
-Other stuff, like tree group page
+Sessions save each tab as usual, plus a `treetab_node_data` entry with the
+tab's node uid, parent uid, children uids and whether it is collapsed. Each
+window gets a `treetab_root` entry with the root node's uid and children.
+Loading a window rebuilds the tree from those, and a version or setting
+without tree tabs ignores them and loads the tabs flat.
 
-## Outstanding issues? Questions?
+Undo entries for closed tabs record the tab's node uid, parent, children and
+place among its siblings, so `:undo` can put it back where it was.
+
+## Outstanding issues
+
+* The tab bar doesn't know about the tree, which is why the tree is drawn in
+  the tab titles and why the settings in "Enabling Tree Tabs" need to fit.
+* The command and setting names are still up for review upstream
+  (qutebrowser issues #8074 and #8075).
