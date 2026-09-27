@@ -351,6 +351,18 @@ Feature: Saving and loading sessions
       - data/numbers/3.txt (active)
       """
 
+  Scenario: qute://tabs shows a lazily restored tab's URL
+    When I set session.lazy_restore to true
+    And I run :session-new lazy-tabs
+    And I open data/numbers/7.txt
+    And I open data/numbers/8.txt in a new tab
+    And I run :session-close lazy-tabs
+    And I wait for "Saved session lazy-tabs" in the log
+    And I run :session-open lazy-tabs
+    And I wait until data/numbers/8.txt is loaded
+    And I open qute://tabs in a new tab
+    Then the page should contain the plaintext "data/numbers/7.txt"
+
   Scenario: Opening an unknown session
     When I run :session-open inexistent-session
     Then the error "Session inexistent-session not found!" should be shown
