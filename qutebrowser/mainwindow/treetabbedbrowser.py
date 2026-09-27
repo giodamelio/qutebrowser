@@ -69,11 +69,9 @@ class _TreeUndoEntry(_UndoEntry):
     ) -> "_TreeUndoEntry | list[_UndoEntry] | None":
         """Make a TreeUndoEntry from a Node."""
         node = tab.node
-        url = node.value.url()
-        try:
-            history_data = tab.history.private_api.serialize()
-        except browsertab.WebTabError:
-            return None  # special URL
+        fields = cls._fields_from_tab(tab)
+        if fields is None:
+            return None
 
         if not recursing and node.collapsed:
             entries = [
@@ -84,7 +82,6 @@ class _TreeUndoEntry(_UndoEntry):
             return [entry for entry in entries
                     if isinstance(entry, _UndoEntry)]
 
-        pinned = node.value.data.pinned
         uid = node.uid
         assert node.parent is not None, node
         parent_uid = node.parent.uid
@@ -98,16 +95,14 @@ class _TreeUndoEntry(_UndoEntry):
             children = [n.uid for n in node.children]
         local_idx = node.index
         return cls(
-            url=url,
-            history=history_data,
             # The index argument is redundant given the parent and local index
             # info, but required by the parent class.
             index=idx,
-            pinned=pinned,
             uid=uid,
             parent_node_uid=parent_uid,
             children_node_uids=children,
             local_index=local_idx,
+            **fields,
         )
 
 
@@ -165,7 +160,7 @@ class TreeTabbedBrowser(TabbedBrowser):
                 new_undo = False
             return
 
-        if not tab.url().isEmpty() and tab.url().isValid() and add_undo:
+        if add_undo:
             self._add_undo_entry(tab, new_undo)
 
         node = tab.node
