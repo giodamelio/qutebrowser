@@ -678,7 +678,21 @@ def check_contents_json(quteproc, docstring):
 
 @bdd.then(bdd.parsers.parse("the following tabs should be open:"))
 def check_open_tabs(quteproc, docstring):
-    """Check the list of open tabs in a one window session.
+    """Check the list of open tabs in a one window session."""
+    _check_open_tabs(quteproc, docstring, quteproc.get_session()['windows'])
+
+
+@bdd.then(bdd.parsers.parse(
+    "the following tabs should be open in session {name}:"))
+def check_open_tabs_in_session(quteproc, name, docstring):
+    """Check the list of open tabs in a session with one window."""
+    windows = [window for window in quteproc.get_session()['windows']
+               if window['session'] == name]
+    _check_open_tabs(quteproc, docstring, windows)
+
+
+def _check_open_tabs(quteproc, docstring, windows):
+    """Check the list of open tabs in the only window of windows.
 
     This is a lightweight alternative for "The session should look like: ...".
 
@@ -693,10 +707,9 @@ def check_open_tabs(quteproc, docstring):
         (pinned)
         (collapsed)
     """
-    session = quteproc.get_session()
     expected_tabs = docstring.splitlines()
-    assert len(session['windows']) == 1
-    window = session['windows'][0]
+    assert len(windows) == 1
+    window = windows[0]
     assert len(window['tabs']) == len(expected_tabs)
 
     active_suffix = ' (active)'
