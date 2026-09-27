@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import functools
+
 import pytest
 from qutebrowser.qt.core import QUrl
 
@@ -388,3 +390,27 @@ def test_revealed_tab_gets_favicon_setting(mocker):
 
     widget.insertTab.assert_called_once()
     widget.update_tab_favicon.assert_called_once_with(tab)
+
+
+def test_drag_several_places_at_once(mocker):
+    """A drag that moves a tab two places in one tabMoved signal."""
+    widget = mocker.Mock(spec=treetabwidget.TreeTabWidget)
+    root = Node(None)
+    widget.tree_root = root
+    widget._recursion_guard = False
+    widget._move_tree_node = functools.partial(
+        treetabwidget.TreeTabWidget._move_tree_node, widget)
+    tabs = {}
+    for name in ['one', 'two', 'three']:
+        tabs[name] = mocker.Mock(name=name)
+        tabs[name].node = Node(tabs[name], parent=root)
+    tab_bar = [tabs['two'], tabs['three'], tabs['one']]
+    widget._tab_by_idx.side_effect = tab_bar.__getitem__
+    widget.tabBar.return_value.drag_in_progress = True
+
+    # QTabBar passes the indices backwards while dragging.
+    treetabwidget.TreeTabWidget.on_tab_moved(widget, 2, 0)
+
+    assert [node.value for node in root.children] == tab_bar
+    assert not widget._recursion_guard
+    widget.tree_tab_update.assert_called_once_with()

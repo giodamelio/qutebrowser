@@ -35,13 +35,6 @@ class TreeTabWidget(TabWidget):
             from_idx, to_idx = to_idx, from_idx
             recursive = False
 
-        log.misc.info(f"TAB MOVED: {from_idx=} {to_idx=} in_drag={self.tabBar().drag_in_progress} guard={self._recursion_guard}")
-
-        def render(node=self.tree_root):
-            for t in node.render():
-                log.misc.info(f"{t[0]} {repr(t[1])}")
-        render()
-
         # A tab has been moved. See if the tree structure needs to be updated.
         # The move could have been triggered from a tree-naive place like
         # QTabBar, or it could have been triggered by something like
@@ -63,8 +56,14 @@ class TreeTabWidget(TabWidget):
             # care to correctly position children in the initial move event.
             return
         self._recursion_guard = True
+        try:
+            self._move_tree_node(from_idx, to_idx, recursive=recursive)
+        finally:
+            self._recursion_guard = False
 
-        log.misc.debug(f"Updating tree structure after tab move {moved_tab.node=} {node_at_current_position=}")
+    def _move_tree_node(self, from_idx, to_idx, *, recursive):
+        """Move the tree node of the tab now at to_idx to match the tab bar."""
+        log.misc.debug(f"Updating tree structure after tab move {from_idx=} {to_idx=}")
 
         if from_idx > to_idx:
             moving_down = False  # moving down the tree, increasing in index
@@ -80,15 +79,13 @@ class TreeTabWidget(TabWidget):
         if recursive:
             moved_node.move_recursive(displaced_node)
         else:
-            # The drag() logic assumes we are moving one tab bar index at a
-            # time. Which means if you keep moving a tab like this it'll do a
-            # depth first traversal of the tree.
-            assert abs(to_idx - from_idx) == 1, f"{to_idx=} {from_idx=}"
-            moved_node.drag("+" if moving_down else "-")
+            # drag() moves a tab one tab bar index at a time, so moving a tab
+            # like this walks it depth first through the tree. A fast drag
+            # can move it several places in one signal.
+            for _ in range(abs(to_idx - from_idx)):
+                moved_node.drag("+" if moving_down else "-")
 
-        render()
         self.tree_tab_update()
-        self._recursion_guard = False
 
     def get_tab_fields(self, idx):
         """Add tree field data to normal tab field data."""
