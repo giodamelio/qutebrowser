@@ -628,3 +628,28 @@ Feature: Tree tab management
               - data/numbers/2.txt (active)
             - data/numbers/3.txt
             """
+
+    Scenario: Turning tree tabs off and on again keeps the tree
+        When I run :session-new tree-off
+        And the window of session tree-off runs :open http://localhost:(port)/data/numbers/1.txt
+        And I wait until data/numbers/1.txt is loaded
+        And the window of session tree-off runs :open -t -r http://localhost:(port)/data/numbers/2.txt
+        And I wait until data/numbers/2.txt is loaded
+        And I run :session-close tree-off
+        And I wait for "Saved session tree-off" in the log
+        And I set tabs.tree_tabs to false
+        And I run :session-open tree-off
+        And I wait until data/numbers/2.txt is loaded
+        And the window of session tree-off runs :open -t http://localhost:(port)/data/numbers/3.txt
+        And I wait until data/numbers/3.txt is loaded
+        And I run :session-close tree-off
+        And I wait for "Saved session tree-off" in the log
+        And I set tabs.tree_tabs to true
+        And I run :session-open tree-off
+        And I wait until data/numbers/3.txt is loaded
+        Then the following tabs should be open in session tree-off:
+            """
+            - data/numbers/1.txt
+              - data/numbers/2.txt
+            - data/numbers/3.txt (active)
+            """

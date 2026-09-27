@@ -13,7 +13,7 @@ from qutebrowser.qt.core import QByteArray, QUrl
 
 from qutebrowser.mainwindow import (mainwindow, windowsessions, tabbedbrowser,
                                     treetabbedbrowser)
-from qutebrowser.misc import historystore, sessionfile
+from qutebrowser.misc import historystore, notree, sessionfile
 from qutebrowser.utils import objreg, usertypes
 
 
@@ -83,6 +83,7 @@ class FakeTabData:
         self.pinned = False
         self.persistent_id = historystore.new_id()
         self.lazy_history = None
+        self.saved_tree_node = None
 
 
 class FakeHistoryPrivate:
@@ -157,6 +158,7 @@ class FakeTabbedBrowser:
         self.undo_stack = collections.deque(maxlen=self.undo_stack_size)
         self.current_tab_changed = FakeSignal()
         self.widget = FakeTabWidget()
+        self.saved_tree_root = None
 
     def tabopen(self, background, related=True, idx=None):
         tab = FakeTab()
@@ -173,12 +175,38 @@ class FakeTabbedBrowser:
         self.is_shut_down = True
 
 
+class FakeTreeTabWidget(FakeTabWidget):
+
+    def __init__(self):
+        super().__init__()
+        self.tree_root = notree.Node(None)
+
+    def tree_tab_update(self):
+        pass
+
+
+class FakeTreeTabbedBrowser(FakeTabbedBrowser):
+
+    is_treetabbedbrowser = True
+
+    def __init__(self):
+        super().__init__()
+        self.widget = FakeTreeTabWidget()
+
+    def tabopen(self, background, related=True, idx=None):
+        tab = super().tabopen(background, related, idx)
+        tab.node = notree.Node(tab, parent=self.widget.tree_root)
+        return tab
+
+
 class FakeMainWindow:
+
+    browser_class = FakeTabbedBrowser
 
     def __init__(self, *, geometry, session):
         self.win_id = 1
         self.session = session
-        self.tabbed_browser = FakeTabbedBrowser()
+        self.tabbed_browser = self.browser_class()
         self.is_deleted = False
 
     def deleteLater(self):
@@ -884,3 +912,46 @@ def test_restore_window_closed_tab_with_taken_id_gets_new_one(
     assert entry.tab_id != tab_id
     assert entry.history is None
     assert entry.tab['id'] == entry.tab_id
+
+
+def tree_tab_data(tab_id, uid, parent, children=()):
+    data = tab_data(tab_id)
+    data['treetab_node_data'] = {'uid': uid, 'parent': parent,
+                                 'children': list(children),
+                                 'collapsed': False}
+    return data
+
+
+def test_restore_window_flat_keeps_the_tree(fake_mainwindows, histories,
+                                            message_mock):
+    ids = [historystore.new_id() for _ in range(2)]
+    tabs = [tree_tab_data(ids[0], 1, 0, [2]), tree_tab_data(ids[1], 2, 1)]
+    root = {'uid': 0, 'children': [1]}
+    window = restore({'tabs': tabs, 'treetab_root': root})
+
+    assert [tab.data.saved_tree_node for tab in window.tabbed_browser.opened] == [
+        tab['treetab_node_data'] for tab in tabs]
+    assert window.tabbed_browser.saved_tree_root == root
+
+
+def test_restore_window_tree_keeps_tabs_the_tree_lost(
+        fake_mainwindows, histories, message_mock, monkeypatch):
+    """Tabs opened and closed while tree tabs were off.
+
+    The new tab has no node, 9 was a child that was closed, and 7 a top
+    level tab that was closed.
+    """
+    monkeypatch.setattr(FakeMainWindow, 'browser_class', FakeTreeTabbedBrowser)
+    parent_id, new_id, child_id = (historystore.new_id() for _ in range(3))
+    window = restore({
+        'tabs': [tree_tab_data(parent_id, 1, 0, [2, 9]),
+                 tab_data(new_id),
+                 tree_tab_data(child_id, 2, 1)],
+        'treetab_root': {'uid': 0, 'children': [7, 1]},
+    })
+
+    root = window.tabbed_browser.widget.tree_root
+    assert [(node.value.data.persistent_id,
+             [child.value.data.persistent_id for child in node.children])
+            for node in root.children] == [(parent_id, [child_id]),
+                                          (new_id, [])]

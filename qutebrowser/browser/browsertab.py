@@ -127,6 +127,8 @@ class TabData:
                        its history file.
         lazy_history: The saved history of a lazily restored tab that
                       hasn't been shown yet.
+        saved_tree_node: With tree tabs off, the tab's node from the session
+                         file, kept for when they are turned back on.
     """
 
     keep_icon: bool = False
@@ -142,6 +144,7 @@ class TabData:
     splitter: miscwidgets.InspectorSplitter | None = None
     persistent_id: str = dataclasses.field(default_factory=historystore.new_id)
     lazy_history: Optional['sessionfile.LazyHistory'] = None
+    saved_tree_node: dict[str, Any] | None = None
 
     def should_show_icon(self) -> bool:
         return (config.val.tabs.favicons.show == 'always' or
