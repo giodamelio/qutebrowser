@@ -476,3 +476,30 @@ Feature: Tree tab management
             """
             - data/javascript/window_open.html (active)
             """
+
+    Scenario: :tab-only keeps the tabs hidden under the kept tab
+        When I open data/numbers/1.txt
+        And I open data/numbers/2.txt in a new related tab
+        And I open data/numbers/3.txt in a new related tab
+        And I open data/numbers/4.txt in a new tab
+        And I run :tab-focus 2
+        And I run :tree-tab-toggle-hide
+        And I run :tab-only
+        Then the following tabs should be open:
+            """
+            - data/numbers/2.txt (active) (collapsed)
+              - data/numbers/3.txt
+            """
+
+    Scenario: :tab-only closes the tabs hidden under closed tabs
+        When I open data/numbers/1.txt
+        And I open data/numbers/2.txt in a new related tab
+        And I open data/numbers/3.txt in a new tab
+        And I run :tab-focus 1
+        And I run :tree-tab-toggle-hide
+        And I run :tab-focus 2
+        And I run :tab-only
+        Then the following tabs should be open:
+            """
+            - data/numbers/3.txt (active)
+            """
