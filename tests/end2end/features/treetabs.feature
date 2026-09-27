@@ -404,3 +404,42 @@ Feature: Tree tab management
         And I run :tree-tab-toggle-hide
         And I open qute://tabs in a new tab
         Then the page should contain the plaintext "data/numbers/2.txt"
+
+    Scenario: Selecting a tab hidden under a collapsed tab
+        When I open data/numbers/1.txt
+        And I open data/numbers/2.txt in a new related tab
+        And I open data/numbers/3.txt in a new related tab
+        And I open data/numbers/4.txt in a new tab
+        And I run :tab-focus 2
+        And I run :tree-tab-toggle-hide
+        And I run :tab-select 2.1
+        Then the following tabs should be open:
+            """
+            - data/numbers/1.txt
+              - data/numbers/2.txt
+                - data/numbers/3.txt (active)
+            - data/numbers/4.txt
+            """
+
+    Scenario: Selecting a hidden tab by its title
+        When I open data/numbers/1.txt
+        And I open data/numbers/2.txt in a new related tab
+        And I open data/numbers/3.txt in a new related tab
+        And I run :tab-focus 2
+        And I run :tree-tab-toggle-hide
+        And I run :tab-focus 1
+        And I run :tab-select 3.txt
+        Then the following tabs should be open:
+            """
+            - data/numbers/1.txt
+              - data/numbers/2.txt
+                - data/numbers/3.txt (active)
+            """
+
+    Scenario: Selecting a hidden tab that doesn't exist
+        When I open data/numbers/1.txt
+        And I open data/numbers/2.txt in a new related tab
+        And I run :tab-focus 1
+        And I run :tree-tab-toggle-hide
+        And I run :tab-select 1.2
+        Then the error "There's no tab with index 1.2!" should be shown

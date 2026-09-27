@@ -481,6 +481,15 @@ class TabbedBrowserStub(QObject):
     def widgets(self):
         return self.widget.tabs
 
+    def tabs(self, include_hidden=False):
+        return self.widget.tabs
+
+    def tab_labels(self):
+        return [(str(idx + 1), tab) for idx, tab in enumerate(self.widget.tabs)]
+
+    def reveal_tab(self, tab):
+        pass
+
     def tabopen(self, url):
         self.loaded_url = url
 
