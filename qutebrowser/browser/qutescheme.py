@@ -28,7 +28,7 @@ from qutebrowser.browser import pdfjs, downloads, history
 from qutebrowser.config import config, configdata, configexc
 from qutebrowser.utils import (version, utils, jinja, log, message, docutils,
                                resources, objreg, standarddir)
-from qutebrowser.misc import guiprocess, quitter
+from qutebrowser.misc import guiprocess, quitter, sessionfile
 from qutebrowser.qt import sip
 
 
@@ -195,18 +195,20 @@ def qute_tabs(_url: QUrl) -> _HandlerRet:
                 tab = node.value
                 if tab is None:
                     continue  # root node has no tab
-                if tab.url() not in [QUrl("qute://tabs/"), QUrl("qute://tabs")]:
-                    urlstr = tab.url().toDisplayString()
+                url = sessionfile.tab_url(tab)
+                if url not in [QUrl("qute://tabs/"), QUrl("qute://tabs")]:
+                    urlstr = url.toDisplayString()
                     hidden = any(n.collapsed for n in node.path[:-1])
                     tabs[str(win_id)].append(
-                        (symbol[2:], tab.title(), urlstr, node.collapsed,
-                         hidden))
+                        (symbol[2:], sessionfile.tab_title(tab), urlstr,
+                         node.collapsed, hidden))
         else:
             for tab in tabbed_browser.widgets():
-                if tab.url() not in [QUrl("qute://tabs/"), QUrl("qute://tabs")]:
-                    urlstr = tab.url().toDisplayString()
+                url = sessionfile.tab_url(tab)
+                if url not in [QUrl("qute://tabs/"), QUrl("qute://tabs")]:
+                    urlstr = url.toDisplayString()
                     tabs[str(win_id)].append(
-                        ('', tab.title(), urlstr, False, False))
+                        ('', sessionfile.tab_title(tab), urlstr, False, False))
 
     src = jinja.render('tabs.html',
                        title='Tabs',
