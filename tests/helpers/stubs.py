@@ -327,6 +327,7 @@ class FakeCommand:
     hide: bool = False
     debug: bool = False
     deprecated: bool = False
+    tree_tab: bool = False
     completion: Any = None
     maxsplit: int = None
     takes_count: Callable[[], bool] = lambda: False
@@ -472,12 +473,23 @@ class TabbedBrowserStub(QObject):
         self.loaded_url = None
         self.cur_url = None
         self.undo_stack = None
+        # Tabs hidden under a collapsed tab, which aren't in the tab bar.
+        self.hidden_tabs = []
 
     def on_tab_close_requested(self, idx):
         del self.widget.tabs[idx]
 
     def widgets(self):
         return self.widget.tabs
+
+    def tabs(self, include_hidden=False):
+        return self.widget.tabs + (self.hidden_tabs if include_hidden else [])
+
+    def tab_labels(self):
+        return [(str(idx + 1), tab) for idx, tab in enumerate(self.widget.tabs)]
+
+    def reveal_tab(self, tab):
+        pass
 
     def tabopen(self, url):
         self.loaded_url = url

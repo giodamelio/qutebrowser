@@ -1,0 +1,255 @@
+# SPDX-FileCopyrightText: Giuseppe Stelluto (pinusc) <giuseppe@gstelluto.com>
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Extension of TabWidget for tree-tab functionality."""
+
+from typing import TYPE_CHECKING, Any
+
+from qutebrowser.qt.core import Qt
+from qutebrowser.qt.widgets import QWidget, QApplication
+from qutebrowser.mainwindow.tabwidget import TabWidget
+from qutebrowser.misc.notree import Node
+from qutebrowser.utils import log
+
+if TYPE_CHECKING:
+    # browsertab imports this module.
+    from qutebrowser.browser import browsertab
+
+
+def shift_held() -> bool:
+    """Whether Shift is held, which makes a drag move a tab's children too."""
+    return bool(QApplication.keyboardModifiers() &
+                Qt.KeyboardModifier.ShiftModifier)
+
+
+class TreeTabWidget(TabWidget):
+    """Tab widget used in TabbedBrowser, with tree-functionality.
+
+    Handles correct rendering of the tree as a tab field, and correct
+    positioning of tabs according to tree structure.
+    """
+
+    def __init__(self, win_id: int, parent: QWidget | None = None) -> None:
+        # root of the tab tree, common for all tabs in the window
+        self.tree_root: Node[Any] = Node(None)
+        super().__init__(win_id, parent)
+        self.tabBar().tabMoved.connect(self.on_tab_moved)
+        self.tabBar().drag_finished.connect(self.on_drag_finished)
+        self._recursion_guard = False
+        # The tab being dragged with Shift, moved with its children when the
+        # drag ends.
+        self._subtree_drag: 'browsertab.AbstractTab | None' = None
+
+    def _tree_tab(self, idx: int) -> 'browsertab.AbstractTab':
+        """Get the tab at a tab bar index, which has a tree node."""
+        tab = self._tab_by_idx(idx)
+        assert tab is not None, idx
+        return tab
+
+    def on_tab_moved(self, from_idx: int, to_idx: int) -> None:
+        """Handle the tabMoved signal."""
+        # QTabBar::mouseMoveEvent() passes the indices backwards, the tab being
+        # dragged is the second arg and the tab we just replaced is first.
+        # We care about which tab is being dragged because dragging a tab into
+        # a tree group is different from dragging a tab out of a group (the
+        # tab that got displaced should stay in the group).
+        recursive = True
+        if self.tabBar().drag_in_progress:
+            from_idx, to_idx = to_idx, from_idx
+            recursive = False
+            if shift_held():
+                # Moving its children mid-drag would move tabs under the
+                # mouse, so the tree changes only when the drag ends.
+                if self._subtree_drag is None:
+                    self._subtree_drag = self._tree_tab(to_idx)
+                return
+
+        # A tab has been moved. See if the tree structure needs to be updated.
+        # The move could have been triggered from a tree-naive place like
+        # QTabBar, or it could have been triggered by something like
+        # _TreeUndoEntry which will have already updated the tree structure.
+
+        # We assume tree tabs will always be in the same order as the tab bar.
+        # This should be enforced by `update_tree_tab_positions()`.
+        # If indexing into the list of tree nodes doesn't yield the same tab
+        # as indexing into the tab bar, then we have work to do.
+        moved_tab = self._tree_tab(to_idx)
+        nodes = list(self.tree_root.traverse(render_collapsed=False))[1:]
+        node_at_current_position = nodes[to_idx]
+        if moved_tab.node == node_at_current_position:
+            return
+
+        if self._recursion_guard:
+            # If we are moving a tab with children, then move events will fire
+            # as we move the children in tree_tab_update(). We already take
+            # care to correctly position children in the initial move event.
+            return
+        self._recursion_guard = True
+        try:
+            self._move_tree_node(from_idx, to_idx, recursive=recursive)
+        finally:
+            self._recursion_guard = False
+
+    def on_drag_finished(self) -> None:
+        """Move a tab dragged with Shift, and its children, where it landed."""
+        tab = self._subtree_drag
+        if tab is None:
+            return
+        self._subtree_drag = None
+        idx = self.indexOf(tab)
+        if idx == -1:
+            # Closed during the drag.
+            return
+        above = self._tree_tab(idx - 1).node if idx > 0 else None
+        below = (self._tree_tab(idx + 1).node if idx + 1 < self.count()
+                 else None)
+        tab.node.drop_recursive(above, below)
+        self.tree_tab_update()
+
+    def _move_tree_node(self, from_idx: int, to_idx: int, *,
+                        recursive: bool) -> None:
+        """Move the tree node of the tab now at to_idx to match the tab bar."""
+        log.misc.debug(f"Updating tree structure after tab move {from_idx=} {to_idx=}")
+
+        if from_idx > to_idx:
+            moving_down = False  # moving down the tree, increasing in index
+        else:
+            moving_down = True
+
+        moved_node = self._tree_tab(to_idx).node
+        if moving_down:
+            displaced_node = self._tree_tab(to_idx - 1).node
+        else:
+            displaced_node = self._tree_tab(to_idx + 1).node
+
+        if recursive:
+            moved_node.move_recursive(displaced_node)
+        else:
+            # drag() moves a tab one tab bar index at a time, so moving a tab
+            # like this walks it depth first through the tree. A fast drag
+            # can move it several places in one signal.
+            for _ in range(abs(to_idx - from_idx)):
+                moved_node.drag("+" if moving_down else "-")
+
+        self.tree_tab_update()
+
+    def get_tab_fields(self, idx: int) -> dict[str, Any]:
+        """Add tree field data to normal tab field data."""
+        fields = super().get_tab_fields(idx)
+
+        if len(self.tree_root.children) == 0:
+            # Presumably the window is still being initialized
+            log.misc.vdebug(  # type: ignore[attr-defined]
+                f"Tree root has no children. Are we starting up? {fields=}")
+            return fields
+
+        rendered_tree = self.tree_root.render()
+        tab = self.widget(idx)
+        found = [
+            prefix
+            for prefix, node in rendered_tree
+            if node.value == tab
+        ]
+
+        if len(found) == 1:
+            # we remove the first two chars because every tab is child of tree
+            # root and that gets rendered as well
+            fields['tree'] = found[0][2:]
+            fields['collapsed'] = '[...] ' if tab.node.collapsed else ''
+            return fields
+
+        # Beyond here we have a mismatch between the tab widget and the tree.
+        # Try to identify known situations where this happens precisely and
+        # handle them gracefully. Blow up on unknown situations so we don't
+        # miss them.
+
+        # Just sanity checking, we haven't seen this yet.
+        assert len(found) == 0, (
+            "Found multiple tree nodes with the same tab as value: tab={tab}"
+        )
+
+        # Having more tabs in the widget when loading a session with a
+        # collapsed group in is a known case. Check for it with a heuristic
+        # (for now) and assert if that doesn't look like that's how we got
+        # here.
+        all_nodes = self.tree_root.traverse()
+        node = [n for n in all_nodes if n.value == tab][0]
+        is_hidden = any(n.collapsed for n in node.path)
+
+        tabs = [str(self.widget(idx)) for idx in range(self.count())]
+        difference = len(rendered_tree) - 1 - len(tabs)
+        # empty_urls here is a proxy for "there is a session being loaded into
+        # this window"
+        empty_urls = all(
+            not self.widget(idx).url().toString() for idx in range(self.count())
+        )
+        if empty_urls and is_hidden:
+            # All tabs will be added to the tab widget during session load
+            # and they will only be removed later when the widget is
+            # updated from the tree. Meanwhile, if we get here we'll have
+            # hidden tabs present in the widget but absent from the node.
+            # To detect this situation more clearly we could do something like
+            # have a is_starting_up or is_loading_session attribute on the
+            # tabwidget/tabbbedbrowser. Or have the session manager add all
+            # nodes to the tree uncollapsed initially and then go through and
+            # collapse them.
+            log.misc.vdebug(  # type: ignore[attr-defined]
+                "get_tab_fields() called with different amount of tabs in "
+                f"widget vs in the tree: difference={difference} "
+                f"tree={rendered_tree[1:]} tabs={tabs}"
+            )
+        else:
+            # If we get here then we have another case to investigate.
+            assert difference == 0, (
+                "Different amount of nodes in tree than widget. "
+                f"difference={difference} tree={rendered_tree[1:]} tabs={tabs}"
+            )
+
+        return fields
+
+    def update_tree_tab_positions(self) -> None:
+        """Update tab positions according to the tree structure."""
+        nodes = self.tree_root.traverse(render_collapsed=False)
+        for idx, node in enumerate(nodes):
+            if idx > 0:
+                cur_idx = self.indexOf(node.value)
+                self.tabBar().moveTab(cur_idx, idx-1)
+
+    def update_tree_tab_visibility(self) -> None:
+        """Hide collapsed tabs and show uncollapsed ones.
+
+        Sync the internal tree to the tabs the user can actually see.
+        """
+        for node in self.tree_root.traverse():
+            if node.value is None:
+                continue
+
+            should_be_hidden = any(ancestor.collapsed for ancestor in node.path[:-1])
+            is_shown = self.indexOf(node.value) != -1
+            if should_be_hidden and is_shown:
+                # node should be hidden but is shown
+                cur_tab = node.value
+                idx = self.indexOf(cur_tab)
+                if idx != -1:
+                    self.removeTab(idx)
+            elif not should_be_hidden and not is_shown:
+                # node should be shown but is hidden
+                parent = node.parent
+                assert parent is not None, node
+                tab = node.value
+                name = tab.title()
+                icon = tab.icon()
+                parent_idx = self.indexOf(parent.value)
+                self.insertTab(parent_idx + 1, tab, icon, name)
+                tab.node.parent = parent  # insertTab resets node
+                # The icon above is the page's, whatever tabs.favicons.show
+                # says.
+                self.update_tab_favicon(tab)
+
+    def tree_tab_update(self) -> None:
+        """Update titles and positions."""
+        with self._disable_tab_title_updates():
+            self.update_tree_tab_visibility()
+            self.update_tree_tab_positions()
+        self.update_tab_titles()

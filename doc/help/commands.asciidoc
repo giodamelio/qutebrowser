@@ -1630,7 +1630,7 @@ The tab index to focus, starting with 1.
 
 [[tab-take]]
 === tab-take
-Syntax: +:tab-take [*--keep*] 'index'+
+Syntax: +:tab-take [*--keep*] [*--recursive*] 'index'+
 
 Take a tab from another window.
 
@@ -1640,6 +1640,7 @@ Take a tab from another window.
 
 ==== optional arguments
 * +*-k*+, +*--keep*+: If given, keep the old tab around.
+* +*-r*+, +*--recursive*+: Take the tab's children too (tree-tabs).
 
 ==== note
 * This command does not split arguments after the last argument and handles quotes literally.
@@ -2173,6 +2174,7 @@ These commands are mainly intended for debugging. They are hidden if qutebrowser
 |<<debug-keytester,debug-keytester>>|Show a keytester widget.
 |<<debug-log-capacity,debug-log-capacity>>|Change the number of log lines to be stored in RAM.
 |<<debug-log-filter,debug-log-filter>>|Change the log filter for console logging.
+|<<debug-mouse-move,debug-mouse-move>>|Pretend we are moving a tab with the mouse.
 |<<debug-pyeval,debug-pyeval>>|Evaluate a python string and display the results as a web page.
 |<<debug-set-fake-clipboard,debug-set-fake-clipboard>>|Put data into the fake clipboard and enable logging, used for tests.
 |<<debug-trace,debug-trace>>|Trace executed code via hunter.
@@ -2246,6 +2248,15 @@ Change the log filter for console logging.
 ==== positional arguments
 * +'filters'+: A comma separated list of logger names. Can also be "none" to clear any existing filters.
 
+
+[[debug-mouse-move]]
+=== debug-mouse-move
+Syntax: +:debug-mouse-move 'direction'+
+
+Pretend we are moving a tab with the mouse.
+
+==== positional arguments
+* +'direction'+: Which direction to drag the tab, '+' or '-'.
 
 [[debug-pyeval]]
 === debug-pyeval

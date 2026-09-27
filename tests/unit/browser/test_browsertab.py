@@ -103,6 +103,7 @@ def test_tab_take_lazy_tab_qt_refuses(config_stub, monkeypatch, message_mock,
     dispatcher = commands.CommandDispatcher(0, types.SimpleNamespace(
         session=object(), tabopen=lambda background, related: newtab))
     other = types.SimpleNamespace(session=object(),
+                                  reveal_tab=lambda tab: None,
                                   close_tab=lambda *args, **kwargs: None)
     monkeypatch.setattr(dispatcher, '_resolve_tab_index',
                         lambda index: (other, tab))
@@ -131,6 +132,7 @@ def test_tab_take_carries_the_history_file(config_stub, monkeypatch, keep):
         session=target, tabopen=lambda background, related: newtab))
     other = types.SimpleNamespace(
         session=source,
+        reveal_tab=lambda tab: None,
         close_tab=lambda closed, **kwargs: events.append('close'))
     monkeypatch.setattr(dispatcher, '_resolve_tab_index',
                         lambda index: (other, tab))
