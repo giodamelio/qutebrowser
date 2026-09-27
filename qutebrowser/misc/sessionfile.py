@@ -295,6 +295,8 @@ def serialize_window(window) -> JsonType:
         tab_data = serialize_tab(tab, tab is current)
         if tree:
             tab_data['treetab_node_data'] = _serialize_node(tab.node)
+        elif tab.data.saved_tree_node is not None:
+            tab_data['treetab_node_data'] = tab.data.saved_tree_node
         data['tabs'].append(tab_data)
     if tree:
         root = tabbed_browser.widget.tree_root
@@ -302,6 +304,8 @@ def serialize_window(window) -> JsonType:
             'children': [child.uid for child in root.children],
             'uid': root.uid,
         }
+    elif tabbed_browser.saved_tree_root is not None:
+        data['treetab_root'] = tabbed_browser.saved_tree_root
     closed_tabs = _serialize_closed_tabs(tabbed_browser.undo_stack)
     if closed_tabs:
         data['closed_tabs'] = closed_tabs
@@ -679,11 +683,21 @@ def _restore_tree(tabbed_browser: Any, data: JsonType,
                   uids: MutableMapping[int, int]) -> None:
     """Open a tree tab window's saved tabs, rebuilding their tree.
 
+    The tree can be out of date: tabs opened or closed while tree tabs were
+    off have no node, or are still listed as children. Tabs the tree doesn't
+    reach open at the top level after it; uids no tab has are skipped.
+
     Args:
         uids: Filled with the restored uid for each saved node uid.
     """
-    by_uid = {tab['treetab_node_data']['uid']: (i, tab)
-              for i, tab in enumerate(data['tabs'])}
+    by_uid = {}
+    unplaced = []
+    for i, tab in enumerate(data['tabs']):
+        node_data = tab.get('treetab_node_data')
+        if node_data is None or node_data['uid'] in by_uid:
+            unplaced.append((i, tab))
+        else:
+            by_uid[node_data['uid']] = (i, tab)
     root = tabbed_browser.widget.tree_root
     uids[data['treetab_root']['uid']] = root.uid
     index = -1
@@ -691,21 +705,25 @@ def _restore_tree(tabbed_browser: Any, data: JsonType,
     def restore_node(uid: int) -> Any:
         nonlocal index
         index += 1
-        # Popped, so a uid listed twice (hand edits) fails instead of looping.
+        # Popped, so a uid listed twice (hand edits) can't loop.
         i, tab = by_uid.pop(uid)
         new_tab = restore(i, tab, index)
         uids[uid] = new_tab.node.uid
         new_tab.node.parent = root
         node_data = tab['treetab_node_data']
         new_tab.node.children = [restore_node(child)
-                                 for child in node_data['children']]
+                                 for child in node_data['children']
+                                 if child in by_uid]
         new_tab.node.collapsed = node_data['collapsed']
         return new_tab.node
 
     for uid in data['treetab_root']['children']:
-        restore_node(uid)
-    if by_uid:
-        raise ValueError(f"{len(by_uid)} tabs are missing from the tab tree")
+        if uid in by_uid:
+            restore_node(uid)
+    for i, tab in sorted(unplaced + list(by_uid.values()),
+                         key=lambda item: item[0]):
+        index += 1
+        restore(i, tab, index).node.parent = root
     # Collapsing a node above doesn't hide its already opened children.
     tabbed_browser.widget.tree_tab_update()
 
@@ -767,7 +785,10 @@ def restore_window(data: JsonType, session, *,  # noqa: C901
             _restore_tree(tabbed_browser, data, restore, uids)
         else:
             for i, tab in enumerate(tabs):
-                restore(i, tab, i)
+                new_tab = restore(i, tab, i)
+                # Kept for when tree tabs are turned back on.
+                new_tab.data.saved_tree_node = tab.get('treetab_node_data')
+            tabbed_browser.saved_tree_root = data.get('treetab_root')
         tabbed_browser.undo_stack.extend(
             _restore_closed_tabs(data, session, used_ids, problems, uids))
     # OSError: QtWebEngine refused bytes of its own version, which only

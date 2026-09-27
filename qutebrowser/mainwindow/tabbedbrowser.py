@@ -283,6 +283,9 @@ class TabbedBrowser(QWidget):
         # This init is never used, it is immediately thrown away in the next
         # line.
         self.undo_stack: UndoStackType = collections.deque()
+        # With tree tabs off, the tree's root from the session file, kept for
+        # when they are turned back on.
+        self.saved_tree_root: dict[str, Any] | None = None
         self._update_stack_size()
         self._filter = signalfilter.SignalFilter(win_id, self)
         self._now_focused = None
