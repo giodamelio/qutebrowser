@@ -612,7 +612,7 @@ class SessionManager:
         source.windows.discard(window.win_id)
         window.session = target
         window.tabbed_browser.session = target
-        for tab in window.tabbed_browser.widgets():
+        for tab in window.tabbed_browser.tabs(include_hidden=True):
             tab.session = target
         self.add_window(target, window.win_id)
         # target's add_window() above acquires first if it needs to, so a

@@ -54,7 +54,7 @@ class FakeTabbedBrowser:
     def __init__(self, tabs):
         self._tabs = [object() for _ in range(tabs)]
 
-    def widgets(self):
+    def tabs(self, include_hidden=False):
         return self._tabs
 
 

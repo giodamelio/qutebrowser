@@ -135,30 +135,37 @@ class FakeTab:
 class FakeTabWidget:
 
     def __init__(self):
-        self.current_index = None
+        self.current_widget = None
 
-    def setCurrentIndex(self, index):
-        self.current_index = index
+    def currentWidget(self):
+        return self.current_widget
+
+    def setCurrentWidget(self, widget):
+        self.current_widget = widget
 
 
 class FakeTabbedBrowser:
 
     undo_stack_size = None
+    is_treetabbedbrowser = False
 
     def __init__(self):
         self.is_shut_down = False
-        self.tabs = []
+        self.opened = []
         self.undo_stack = collections.deque(maxlen=self.undo_stack_size)
         self.current_tab_changed = FakeSignal()
         self.widget = FakeTabWidget()
 
-    def tabopen(self, background):
+    def tabopen(self, background, related=True, idx=None):
         tab = FakeTab()
-        self.tabs.append(tab)
+        self.opened.insert(len(self.opened) if idx is None else idx, tab)
         return tab
 
     def widgets(self):
-        return self.tabs
+        return self.opened
+
+    def tabs(self, include_hidden=False):
+        return self.opened
 
     def shutdown(self):
         self.is_shut_down = True
@@ -267,7 +274,7 @@ def test_restore_window_keeps_saved_ids(fake_mainwindows, message_mock,
     first, second = historystore.new_id(), historystore.new_id()
     with caplog.at_level(logging.WARNING):
         window = restore({'tabs': [tab_data(first), tab_data(second)]})
-    assert [tab.data.persistent_id for tab in window.tabbed_browser.tabs] == [
+    assert [tab.data.persistent_id for tab in window.tabbed_browser.opened] == [
         first, second]
 
 
@@ -278,7 +285,7 @@ def test_restore_window_replaces_unusable_ids(fake_mainwindows, message_mock,
                                               caplog, saved_id):
     with caplog.at_level(logging.WARNING):
         window = restore({'tabs': [tab_data(saved_id)]})
-    [tab] = window.tabbed_browser.tabs
+    [tab] = window.tabbed_browser.opened
     assert historystore.is_valid_id(tab.data.persistent_id)
     assert tab.data.persistent_id != saved_id
 
@@ -288,7 +295,7 @@ def test_restore_window_duplicate_id_gets_new_id(fake_mainwindows,
     tab_id = historystore.new_id()
     with caplog.at_level(logging.WARNING):
         window = restore({'tabs': [tab_data(tab_id), tab_data(tab_id)]})
-    first, second = window.tabbed_browser.tabs
+    first, second = window.tabbed_browser.opened
     assert first.data.persistent_id == tab_id
     assert second.data.persistent_id != tab_id
 
@@ -307,7 +314,7 @@ def test_restore_window_id_of_open_tab_gets_new_id(fake_mainwindows,
         window = restore({'tabs': [tab_data(live_tab.data.persistent_id)]},
                          session)
 
-    [tab] = window.tabbed_browser.tabs
+    [tab] = window.tabbed_browser.opened
     assert tab.data.persistent_id != live_tab.data.persistent_id
 
 
@@ -382,7 +389,7 @@ def test_restore_window_loads_history_bytes(fake_mainwindows, histories):
     tab_id = historystore.new_id()
     histories[tab_id] = b'saved history'
     window = restore({'tabs': [tab_data(tab_id)]})
-    [tab] = window.tabbed_browser.tabs
+    [tab] = window.tabbed_browser.opened
     assert tab.history.private_api.deserialized == b'saved history'
     assert tab.history.private_api.loaded is None
     assert tab.title_changed.emitted == [('page',)]
@@ -413,7 +420,7 @@ def test_restore_window_falls_back_with_one_warning(fake_mainwindows,
             tab_data_with_back(kept), tab_data_with_back(missing),
             tab_data_with_back(old), tab_data_with_back(None)]})
 
-    tabs = window.tabbed_browser.tabs
+    tabs = window.tabbed_browser.opened
     assert [tab.history.private_api.deserialized for tab in tabs] == [
         b'saved history', None, None, None]
     assert [item.url for item in tabs[1].history.private_api.loaded] == [
@@ -433,7 +440,7 @@ def test_restore_window_single_entry_without_history_is_silent(
     """
     window = restore({'tabs': [tab_data(historystore.new_id()),
                                tab_data(None)]})
-    tabs = window.tabbed_browser.tabs
+    tabs = window.tabbed_browser.opened
     assert [[item.url for item in tab.history.private_api.loaded]
             for tab in tabs] == [[QUrl('https://example.org/')]] * 2
     assert not message_mock.messages
@@ -447,7 +454,7 @@ def test_restore_window_duplicate_id_reads_bytes_once(fake_mainwindows,
     with caplog.at_level(logging.WARNING):
         window = restore({'tabs': [tab_data_with_back(tab_id),
                                    tab_data_with_back(tab_id)]})
-    first, second = window.tabbed_browser.tabs
+    first, second = window.tabbed_browser.opened
     assert first.history.private_api.deserialized == b'saved history'
     assert second.history.private_api.deserialized is None
     calls = windowsessions.manager.read_history.call_args_list
@@ -485,7 +492,7 @@ def test_restore_window_lazy_tabs_wait_until_shown(fake_mainwindows,
         tab_data(shown_id, 'https://shown.example/', active=True),
     ]})
 
-    hidden, shown = window.tabbed_browser.tabs
+    hidden, shown = window.tabbed_browser.opened
     assert shown.history.private_api.deserialized == b'shown history'
     assert shown.data.lazy_history is None
     assert hidden.history.private_api.deserialized is None
@@ -509,7 +516,7 @@ def test_restore_window_lazy_needs_its_own_tab_bar(fake_mainwindows,
     histories.update({first_id: b'history', second_id: b'other'})
     window = restore({'tabs': [tab_data(first_id),
                                tab_data(second_id, active=True)]})
-    first = window.tabbed_browser.tabs[0]
+    first = window.tabbed_browser.opened[0]
     assert first.data.lazy_history is None
     assert first.history.private_api.deserialized == b'history'
 
@@ -572,7 +579,7 @@ def test_lazy_restore_without_bytes_keeps_upstream_behavior(
     config_stub.val.session.lazy_restore = True
     with caplog.at_level(logging.WARNING):
         window = restore({'tabs': [tab_data(historystore.new_id())]})
-    [tab] = window.tabbed_browser.tabs
+    [tab] = window.tabbed_browser.opened
     assert tab.data.lazy_history is None
     assert [item.url.toString() for item in tab.history.private_api.loaded] == [
         'https://example.org/', 'qute://back#page']
@@ -606,8 +613,8 @@ def test_restore_window_lazy_shows_the_last_active_tab(fake_mainwindows,
     histories.update({first_id: b'first', second_id: b'second'})
     window = restore({'tabs': [tab_data(first_id, active=True),
                                tab_data(second_id, active=True)]})
-    first, second = window.tabbed_browser.tabs
-    assert window.tabbed_browser.widget.current_index == 1
+    first, second = window.tabbed_browser.opened
+    assert window.tabbed_browser.widget.current_widget is second
     assert second.data.lazy_history is None
     assert second.history.private_api.deserialized == b'second'
     assert first.data.lazy_history.history == b'first'
