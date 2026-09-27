@@ -4,9 +4,16 @@
 
 """Extension of TabWidget for tree-tab functionality."""
 
+from typing import TYPE_CHECKING, Any
+
+from qutebrowser.qt.widgets import QWidget
 from qutebrowser.mainwindow.tabwidget import TabWidget
 from qutebrowser.misc.notree import Node
 from qutebrowser.utils import log
+
+if TYPE_CHECKING:
+    # browsertab imports this module.
+    from qutebrowser.browser import browsertab
 
 
 class TreeTabWidget(TabWidget):
@@ -16,14 +23,20 @@ class TreeTabWidget(TabWidget):
     positioning of tabs according to tree structure.
     """
 
-    def __init__(self, win_id, parent=None):
+    def __init__(self, win_id: int, parent: QWidget | None = None) -> None:
         # root of the tab tree, common for all tabs in the window
-        self.tree_root = Node(None)
+        self.tree_root: Node[Any] = Node(None)
         super().__init__(win_id, parent)
         self.tabBar().tabMoved.connect(self.on_tab_moved)
         self._recursion_guard = False
 
-    def on_tab_moved(self, from_idx: int, to_idx: int):
+    def _tree_tab(self, idx: int) -> 'browsertab.AbstractTab':
+        """Get the tab at a tab bar index, which has a tree node."""
+        tab = self._tab_by_idx(idx)
+        assert tab is not None, idx
+        return tab
+
+    def on_tab_moved(self, from_idx: int, to_idx: int) -> None:
         """Handle the tabMoved signal."""
         # QTabBar::mouseMoveEvent() passes the indices backwards, the tab being
         # dragged is the second arg and the tab we just replaced is first.
@@ -44,7 +57,7 @@ class TreeTabWidget(TabWidget):
         # This should be enforced by `update_tree_tab_positions()`.
         # If indexing into the list of tree nodes doesn't yield the same tab
         # as indexing into the tab bar, then we have work to do.
-        moved_tab = self._tab_by_idx(to_idx)
+        moved_tab = self._tree_tab(to_idx)
         nodes = list(self.tree_root.traverse(render_collapsed=False))[1:]
         node_at_current_position = nodes[to_idx]
         if moved_tab.node == node_at_current_position:
@@ -61,7 +74,8 @@ class TreeTabWidget(TabWidget):
         finally:
             self._recursion_guard = False
 
-    def _move_tree_node(self, from_idx, to_idx, *, recursive):
+    def _move_tree_node(self, from_idx: int, to_idx: int, *,
+                        recursive: bool) -> None:
         """Move the tree node of the tab now at to_idx to match the tab bar."""
         log.misc.debug(f"Updating tree structure after tab move {from_idx=} {to_idx=}")
 
@@ -70,11 +84,11 @@ class TreeTabWidget(TabWidget):
         else:
             moving_down = True
 
-        moved_node = self._tab_by_idx(to_idx).node
+        moved_node = self._tree_tab(to_idx).node
         if moving_down:
-            displaced_node = self._tab_by_idx(to_idx - 1).node
+            displaced_node = self._tree_tab(to_idx - 1).node
         else:
-            displaced_node = self._tab_by_idx(to_idx + 1).node
+            displaced_node = self._tree_tab(to_idx + 1).node
 
         if recursive:
             moved_node.move_recursive(displaced_node)
@@ -87,13 +101,14 @@ class TreeTabWidget(TabWidget):
 
         self.tree_tab_update()
 
-    def get_tab_fields(self, idx):
+    def get_tab_fields(self, idx: int) -> dict[str, Any]:
         """Add tree field data to normal tab field data."""
         fields = super().get_tab_fields(idx)
 
         if len(self.tree_root.children) == 0:
             # Presumably the window is still being initialized
-            log.misc.vdebug(f"Tree root has no children. Are we starting up? fields={fields}")
+            log.misc.vdebug(  # type: ignore[attr-defined]
+                f"Tree root has no children. Are we starting up? {fields=}")
             return fields
 
         rendered_tree = self.tree_root.render()
@@ -146,7 +161,7 @@ class TreeTabWidget(TabWidget):
             # tabwidget/tabbbedbrowser. Or have the session manager add all
             # nodes to the tree uncollapsed initially and then go through and
             # collapse them.
-            log.misc.vdebug(
+            log.misc.vdebug(  # type: ignore[attr-defined]
                 "get_tab_fields() called with different amount of tabs in "
                 f"widget vs in the tree: difference={difference} "
                 f"tree={rendered_tree[1:]} tabs={tabs}"
@@ -160,7 +175,7 @@ class TreeTabWidget(TabWidget):
 
         return fields
 
-    def update_tree_tab_positions(self):
+    def update_tree_tab_positions(self) -> None:
         """Update tab positions according to the tree structure."""
         nodes = self.tree_root.traverse(render_collapsed=False)
         for idx, node in enumerate(nodes):
@@ -168,7 +183,7 @@ class TreeTabWidget(TabWidget):
                 cur_idx = self.indexOf(node.value)
                 self.tabBar().moveTab(cur_idx, idx-1)
 
-    def update_tree_tab_visibility(self):
+    def update_tree_tab_visibility(self) -> None:
         """Hide collapsed tabs and show uncollapsed ones.
 
         Sync the internal tree to the tabs the user can actually see.
@@ -188,17 +203,18 @@ class TreeTabWidget(TabWidget):
             elif not should_be_hidden and not is_shown:
                 # node should be shown but is hidden
                 parent = node.parent
+                assert parent is not None, node
                 tab = node.value
                 name = tab.title()
                 icon = tab.icon()
-                parent_idx = self.indexOf(node.parent.value)
+                parent_idx = self.indexOf(parent.value)
                 self.insertTab(parent_idx + 1, tab, icon, name)
                 tab.node.parent = parent  # insertTab resets node
                 # The icon above is the page's, whatever tabs.favicons.show
                 # says.
                 self.update_tab_favicon(tab)
 
-    def tree_tab_update(self):
+    def tree_tab_update(self) -> None:
         """Update titles and positions."""
         with self._disable_tab_title_updates():
             self.update_tree_tab_visibility()

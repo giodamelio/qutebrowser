@@ -49,7 +49,7 @@ class _UndoEntry:
     @classmethod
     def from_tab(
         cls, tab: browsertab.AbstractTab, idx: int
-    ) -> "_UndoEntry | list[_UndoEntry]":
+    ) -> "_UndoEntry | list[_UndoEntry] | None":
         """Generate an undo entry from `tab`."""
         try:
             history_data = tab.history.private_api.serialize()
@@ -223,7 +223,7 @@ class TabbedBrowser(QWidget):
     new_tab = pyqtSignal(browsertab.AbstractTab, int)
     is_treetabbedbrowser = False
     shutting_down = pyqtSignal()
-    _undo_class = _UndoEntry
+    _undo_class: type[_UndoEntry] = _UndoEntry
 
     def __init__(self, *, win_id, private, parent=None):
         if private:
@@ -586,7 +586,7 @@ class TabbedBrowser(QWidget):
         if not entry:
             return
 
-        if isinstance(entry, self._undo_class):
+        if isinstance(entry, _UndoEntry):
             if new_undo or not self.undo_stack:
                 self.undo_stack.append([entry])
             else:
