@@ -124,7 +124,15 @@ def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=Non
 
         tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                     window=int(win_id))
-        tabbed_browser.on_tab_close_requested(int(tab_index) - 1)
+        if '.' in tab_index:
+            # Hidden under a collapsed tab, and only tabs in the tab bar can
+            # be closed.
+            tab = dict(tabbed_browser.tab_labels())[tab_index]
+            tabbed_browser.reveal_tab(tab)
+            idx = tabbed_browser.widget.indexOf(tab)
+        else:
+            idx = int(tab_index) - 1
+        tabbed_browser.on_tab_close_requested(idx)
 
     model = completionmodel.CompletionModel(column_widths=(6, 40, 46, 8))
 
@@ -141,17 +149,21 @@ def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=Non
         if tabbed_browser.is_shutting_down:
             continue
         tab_entries: list[tuple[str, str, str, str]] = []
-        for idx in range(tabbed_browser.widget.count()):
-            tab = tabbed_browser.widget.widget(idx)
-            tab_str = ("{}/{}".format(win_id, idx + 1) if add_win_id
-                       else str(idx + 1))
+        for label, tab in tabbed_browser.tab_labels():
+            tab_str = f"{win_id}/{label}" if add_win_id else label
 
             pid = tab.renderer_process_pid()
+
+            if '.' in label:
+                # Hidden under a collapsed tab, so not in the tab bar.
+                title = sessionfile.tab_title(tab)
+            else:
+                title = tabbed_browser.widget.page_title(int(label) - 1)
 
             tab_entries.append((
                 tab_str,
                 sessionfile.tab_url(tab).toDisplayString(),
-                tabbed_browser.widget.page_title(idx),
+                title,
                 "" if pid is None else f"PID {pid}",
             ))
 
@@ -217,7 +229,7 @@ def window(*, info):
         tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                     window=win_id)
         tab_titles = (sessionfile.tab_title(tab)
-                      for tab in tabbed_browser.widgets())
+                      for tab in tabbed_browser.tabs(include_hidden=True))
         windows.append(("{}".format(win_id),
                         objreg.window_registry[win_id].windowTitle(),
                         ", ".join(tab_titles)))

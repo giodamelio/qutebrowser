@@ -41,6 +41,8 @@ if TYPE_CHECKING:
     from qutebrowser.browser.webengine.webview import WebEngineView
     from qutebrowser.browser.webkit.webview import WebView
 
+from qutebrowser.mainwindow.treetabwidget import TreeTabWidget
+from qutebrowser.misc.notree import Node
 
 tab_id_gen = itertools.count(0)
 _WidgetType: TypeAlias = Union["WebView", "WebEngineView"]
@@ -1065,6 +1067,11 @@ class AbstractTab(QWidget):
         self._tab_event_filter = eventfilter.TabEventFilter(
             self, parent=self)
         self.backend: usertypes.Backend | None = None
+
+        self.node: Node[AbstractTab] = Node(
+            self,
+            parent=(parent.tree_root if isinstance(parent, TreeTabWidget)
+                    else None))
 
         # If true, this tab has been requested to be removed (or is removed).
         self.pending_removal = False

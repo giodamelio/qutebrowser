@@ -120,7 +120,7 @@ class CrashHandler(QObject):
             win_pages = []
             tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                         window=win_id)
-            for tab in tabbed_browser.widgets():
+            for tab in tabbed_browser.tabs(include_hidden=True):
                 try:
                     urlstr = tab.url().toString(
                         QUrl.UrlFormattingOption.RemovePassword | QUrl.ComponentFormattingOption.FullyEncoded)

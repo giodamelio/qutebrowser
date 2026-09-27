@@ -53,7 +53,7 @@ def test_undo_loads_page_when_saved_history_is_corrupt(
     browser = types.SimpleNamespace(
         widget=mock.Mock(**{'count.return_value': 1}),
         undo_stack=collections.deque(),
-        tabopen=lambda background, idx: tab)
+        tabopen=lambda background, related, idx: tab)
     tab_id = historystore.new_id()
     browser.undo_stack.append([tabbedbrowser._UndoEntry(
         url=QUrl('https://example.org/'), history=historystore.Snapshot(b'corrupt'),
