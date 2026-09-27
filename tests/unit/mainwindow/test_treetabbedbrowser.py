@@ -3,10 +3,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import pytest
+from qutebrowser.qt.core import QUrl
 
 from qutebrowser.config.configtypes import NewTabPosition, NewChildPosition
 from qutebrowser.misc.notree import Node
-from qutebrowser.mainwindow import treetabbedbrowser, treetabwidget
+from qutebrowser.mainwindow import (tabbedbrowser, treetabbedbrowser,
+                                    treetabwidget)
 
 
 @pytest.fixture
@@ -305,3 +307,87 @@ class TestHiddenTabs:
             mock_browser, tree['two'].value)
         assert tree['two'].collapsed
         mock_browser.widget.tree_tab_update.assert_not_called()
+
+
+class TestRemoveTab:
+    """Test TreeTabbedBrowser._remove_tab() with tabs outside the tab bar."""
+
+    def test_already_removed(self, mocker, mock_browser):
+        """A tab its page closes twice has left the tree (#8414)."""
+        tab = mocker.Mock()
+        tab.node = Node(tab)
+        mock_browser.widget.indexOf.return_value = -1
+        with pytest.raises(tabbedbrowser.TabDeletedError):
+            treetabbedbrowser.TreeTabbedBrowser._remove_tab(mock_browser, tab)
+        mock_browser._add_undo_entry.assert_not_called()
+
+    def test_hidden(self, mocker, mock_browser):
+        """A tab hidden under a collapsed tab is removed from the tree."""
+        root = Node(None)
+        mock_browser.widget.tree_root = root
+        tabs = {name: mocker.Mock(name=name, pending_removal=False)
+                for name in ['one', 'two', 'three']}
+        one = tabs['one'].node = Node(tabs['one'], parent=root)
+        two = tabs['two'].node = Node(tabs['two'], parent=one)
+        three = tabs['three'].node = Node(tabs['three'], parent=two)
+        one.collapsed = True
+        mock_browser.widget.indexOf.side_effect = (
+            lambda tab: 0 if tab is tabs['one'] else -1)
+
+        treetabbedbrowser.TreeTabbedBrowser._remove_tab(
+            mock_browser, tabs['two'], add_undo=False)
+
+        assert two.parent is None
+        assert three.parent is one
+        assert tabs['two'].pending_removal
+        tabs['two'].private_api.shutdown.assert_called_once_with()
+        tabs['two'].deleteLater.assert_called_once_with()
+        mock_browser.widget.tree_tab_update.assert_called_once_with()
+
+
+class TestUndoEntry:
+    """Test _TreeUndoEntry.restore_into_tab() when the tree has changed."""
+
+    @pytest.fixture
+    def restore(self, mocker):
+        def restore(root, **fields):
+            entry = treetabbedbrowser._TreeUndoEntry(
+                url=QUrl('https://example.org/'), history=b'', index=0,
+                pinned=False, local_index=0, **fields)
+            tab = mocker.Mock()
+            tab.node = Node(tab, parent=root)
+            entry.restore_into_tab(tab)
+            return tab.node
+        return restore
+
+    def test_taken_uid(self, restore):
+        """A uid already in the tree isn't used twice (#8274)."""
+        root = Node(None)
+        taken = Node('taken', parent=root)
+        node = restore(root, uid=taken.uid, parent_node_uid=root.uid,
+                       children_node_uids=[])
+        assert node.uid != taken.uid
+        assert root.get_descendent_by_uid(taken.uid) is taken
+
+    def test_missing_nodes(self, restore):
+        root = Node(None)
+        node = restore(root, uid=-1, parent_node_uid=-2,
+                       children_node_uids=[-3])
+        assert node.parent is root
+        assert node.children == ()
+
+    def test_child_became_ancestor(self, restore):
+        """A former child now above the old parent stays where it is.
+
+        - child
+          - parent  <- the closed tab's parent, moved under its former child
+        """
+        root = Node(None)
+        child = Node('child', parent=root)
+        parent = Node('parent', parent=child)
+        node = restore(root, uid=-1, parent_node_uid=parent.uid,
+                       children_node_uids=[child.uid])
+        assert node.parent is parent
+        assert child.parent is root
+        assert node.children == ()
+        assert len(list(root.traverse())) == 4
