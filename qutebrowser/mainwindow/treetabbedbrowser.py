@@ -30,7 +30,11 @@ class _TreeUndoEntry(_UndoEntry):
         super().restore_into_tab(tab)
 
         root = tab.node.path[0]
-        uid = self.uid
+        uid: int | None = self.uid
+        if root.get_descendent_by_uid(uid) not in [None, tab.node]:
+            # Two nodes with one uid would make the lookups below find the
+            # wrong one (#8274).
+            uid = None
         parent_uid = self.parent_node_uid
         parent_node = root.get_descendent_by_uid(parent_uid)
         if not parent_node:
@@ -39,7 +43,9 @@ class _TreeUndoEntry(_UndoEntry):
         children = []
         for child_uid in self.children_node_uids:
             child_node = root.get_descendent_by_uid(child_uid)
-            if child_node:
+            # A former child can be the new parent or above it by now, which
+            # would make the tree a cycle.
+            if child_node is not None and child_node not in parent_node.path:
                 children.append(child_node)
         tab.node.parent = None  # Remove the node from the tree
         tab.node = notree.Node(tab, parent_node,
@@ -125,10 +131,16 @@ class TreeTabbedBrowser(TabbedBrowser):
         """Return the tab widget that can display a tree structure."""
         return TreeTabWidget(self._win_id, parent=self)
 
-    def _remove_tab(self, tab, *, add_undo=True, new_undo=True, crashed=False, recursive=False):
+    def _remove_tab(  # noqa: C901
+            self, tab, *, add_undo=True, new_undo=True, crashed=False,
+            recursive=False):
         """Handle children positioning after a tab is removed."""
-        if not tab.url().isEmpty() and tab.url().isValid() and add_undo:
-            self._add_undo_entry(tab, new_undo)
+        if tab.node.parent is None:
+            # Already removed, e.g. its page asked to close twice (#8414).
+            # TabbedBrowser tells the caller the tab is gone.
+            super()._remove_tab(tab, add_undo=False, new_undo=False,
+                                crashed=crashed)
+            return
 
         if recursive:
             for descendent in tab.node.traverse(
@@ -149,6 +161,9 @@ class TreeTabbedBrowser(TabbedBrowser):
                 )
                 new_undo = False
             return
+
+        if not tab.url().isEmpty() and tab.url().isValid() and add_undo:
+            self._add_undo_entry(tab, new_undo)
 
         node = tab.node
         parent = node.parent
@@ -212,8 +227,15 @@ class TreeTabbedBrowser(TabbedBrowser):
 
             node.parent = None
 
-        super()._remove_tab(tab, add_undo=False, new_undo=False,
-                            crashed=crashed)
+        if self.widget.indexOf(tab) == -1:
+            # Hidden under a collapsed tab, e.g. when its page closed itself,
+            # so not in the tab bar TabbedBrowser removes tabs from.
+            tab.pending_removal = True
+            tab.private_api.shutdown()
+            tab.deleteLater()
+        else:
+            super()._remove_tab(tab, add_undo=False, new_undo=False,
+                                crashed=crashed)
 
         self.widget.tree_tab_update()
 
@@ -361,11 +383,11 @@ class TreeTabbedBrowser(TabbedBrowser):
             siblings.remove(new_node)
 
         if idx:
-            sibling_indices = [self.widget.indexOf(node.value) for node in siblings]
-            assert sibling_indices == sorted(sibling_indices)
-            sibling_indices.append(idx)
-            sibling_indices = sorted(sibling_indices)
-            rel_idx = sibling_indices.index(idx)
+            # The tab bar isn't always in tree order here: :undo reopens a
+            # group's tabs before it sorts the tab bar. Hidden siblings aren't
+            # in it at all.
+            rel_idx = sum(1 for node in siblings
+                          if 0 <= self.widget.indexOf(node.value) < idx)
             siblings.insert(rel_idx, new_node)
         elif pos == 'first':
             rel_idx = 0

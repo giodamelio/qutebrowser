@@ -443,3 +443,36 @@ Feature: Tree tab management
         And I run :tree-tab-toggle-hide
         And I run :tab-select 1.2
         Then the error "There's no tab with index 1.2!" should be shown
+
+    Scenario: Undoing a recursive tab close only once
+        # Empties the undo stack the background steps filled.
+        When I set tabs.undo_stack_size to 0
+        And I set tabs.undo_stack_size to 100
+        And I open data/numbers/1.txt
+        And I open data/numbers/2.txt in a new related tab
+        And I open data/numbers/3.txt in a new tab
+        And I run :tab-focus 1
+        And I run :tab-close --recursive
+        And I run :undo
+        And I wait until data/numbers/2.txt is loaded
+        And I run :undo
+        Then the error "Nothing to undo*" should be shown
+        And the following tabs should be open:
+            """
+            - data/numbers/1.txt
+              - data/numbers/2.txt
+            - data/numbers/3.txt
+            """
+
+    Scenario: Closing a JS window twice (issue 906) with tree tabs
+        When I open data/javascript/window_open.html
+        And I run :click-element id open-normal
+        And I wait for "Changing title for idx 1 to 'about:blank'" in the log
+        And I run :tab-select window_open.html
+        And I run :click-element id close-twice
+        And I wait for "[*] window closed" in the log
+        Then no crash should happen
+        And the following tabs should be open:
+            """
+            - data/javascript/window_open.html (active)
+            """
