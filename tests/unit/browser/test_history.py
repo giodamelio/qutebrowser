@@ -123,6 +123,13 @@ class TestDelete:
             set(web_history.completion))
         assert completion_diff == {(raw, '', 0)}
 
+    def test_delete_url_emits_completion_removed(self, web_history, mocker):
+        web_history.add_url(QUrl('http://example.com/'), atime=0)
+        spy = mocker.Mock()
+        web_history.completion_removed.connect(spy)
+        web_history.delete_url(QUrl('http://example.com/'))
+        spy.assert_called_once_with('http://example.com/')
+
 
 class TestAdd:
 
@@ -154,6 +161,29 @@ class TestAdd:
         else:
             expected = [(completion_url, title, atime)]
             assert list(web_history.completion) == expected
+
+    def test_add_url_emits_completion_added(self, web_history, mocker):
+        spy = mocker.Mock()
+        web_history.completion_added.connect(spy)
+        web_history.add_url(QUrl('http://www.example.com'), atime=12346,
+                            title='the title')
+        spy.assert_called_once_with('http://www.example.com', 'the title', 12346)
+
+    def test_redirect_does_not_emit_completion_added(self, web_history, mocker):
+        spy = mocker.Mock()
+        web_history.completion_added.connect(spy)
+        web_history.add_url(QUrl('http://www.example.com'), atime=12346,
+                            title='the title', redirect=True)
+        assert not spy.called
+
+    def test_excluded_does_not_emit_completion_added(self, web_history,
+                                                    config_stub, mocker):
+        config_stub.val.completion.web_history.exclude = ['*.example.org']
+        spy = mocker.Mock()
+        web_history.completion_added.connect(spy)
+        web_history.add_url(QUrl('http://www.example.org/'), atime=12346,
+                            title='the title')
+        assert not spy.called
 
     def test_no_sql_web_history(self, web_history, monkeypatch):
         monkeypatch.setattr(objects, 'debug_flags', {'no-sql-history'})
