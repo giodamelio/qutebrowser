@@ -166,6 +166,17 @@ def test_qutescheme_registers_page(host):
     assert repr(host) in result.stdout
 
 
+@pytest.mark.parametrize('handler, table', [
+    (sessionpages.qute_containers, 'containers'),
+    (sessionpages.qute_sessions, 'sessions'),
+])
+def test_page_table_is_sortable(manager, handler, table):
+    html = page(handler)
+    assert f'<table id="{table}" class="sortable">' in html
+    assert ('<script type="text/javascript" '
+            'src="qute://javascript/sortable.js"></script>') in html
+
+
 def test_containers_page_rows(manager, windows, container_registry,
                               config_stub):
     container_registry.add('work', 'red')
