@@ -6,7 +6,8 @@
 
 from typing import TYPE_CHECKING, Any
 
-from qutebrowser.qt.widgets import QWidget
+from qutebrowser.qt.core import Qt
+from qutebrowser.qt.widgets import QWidget, QApplication
 from qutebrowser.mainwindow.tabwidget import TabWidget
 from qutebrowser.misc.notree import Node
 from qutebrowser.utils import log
@@ -14,6 +15,12 @@ from qutebrowser.utils import log
 if TYPE_CHECKING:
     # browsertab imports this module.
     from qutebrowser.browser import browsertab
+
+
+def shift_held() -> bool:
+    """Whether Shift is held, which makes a drag move a tab's children too."""
+    return bool(QApplication.keyboardModifiers() &
+                Qt.KeyboardModifier.ShiftModifier)
 
 
 class TreeTabWidget(TabWidget):
@@ -28,7 +35,11 @@ class TreeTabWidget(TabWidget):
         self.tree_root: Node[Any] = Node(None)
         super().__init__(win_id, parent)
         self.tabBar().tabMoved.connect(self.on_tab_moved)
+        self.tabBar().drag_finished.connect(self.on_drag_finished)
         self._recursion_guard = False
+        # The tab being dragged with Shift, moved with its children when the
+        # drag ends.
+        self._subtree_drag: 'browsertab.AbstractTab | None' = None
 
     def _tree_tab(self, idx: int) -> 'browsertab.AbstractTab':
         """Get the tab at a tab bar index, which has a tree node."""
@@ -47,6 +58,12 @@ class TreeTabWidget(TabWidget):
         if self.tabBar().drag_in_progress:
             from_idx, to_idx = to_idx, from_idx
             recursive = False
+            if shift_held():
+                # Moving its children mid-drag would move tabs under the
+                # mouse, so the tree changes only when the drag ends.
+                if self._subtree_drag is None:
+                    self._subtree_drag = self._tree_tab(to_idx)
+                return
 
         # A tab has been moved. See if the tree structure needs to be updated.
         # The move could have been triggered from a tree-naive place like
@@ -73,6 +90,22 @@ class TreeTabWidget(TabWidget):
             self._move_tree_node(from_idx, to_idx, recursive=recursive)
         finally:
             self._recursion_guard = False
+
+    def on_drag_finished(self) -> None:
+        """Move a tab dragged with Shift, and its children, where it landed."""
+        tab = self._subtree_drag
+        if tab is None:
+            return
+        self._subtree_drag = None
+        idx = self.indexOf(tab)
+        if idx == -1:
+            # Closed during the drag.
+            return
+        above = self._tree_tab(idx - 1).node if idx > 0 else None
+        below = (self._tree_tab(idx + 1).node if idx + 1 < self.count()
+                 else None)
+        tab.node.drop_recursive(above, below)
+        self.tree_tab_update()
 
     def _move_tree_node(self, from_idx: int, to_idx: int, *,
                         recursive: bool) -> None:

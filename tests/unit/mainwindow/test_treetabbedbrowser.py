@@ -414,3 +414,59 @@ def test_drag_several_places_at_once(mocker):
     assert [node.value for node in root.children] == tab_bar
     assert not widget._recursion_guard
     widget.tree_tab_update.assert_called_once_with()
+
+
+class TestSubtreeDrag:
+    """Test dragging a tab with Shift held, which moves its children too."""
+
+    @pytest.fixture
+    def widget(self, mocker):
+        widget = mocker.Mock(spec=treetabwidget.TreeTabWidget)
+        widget.tree_root = Node(None)
+        widget._recursion_guard = False
+        widget._subtree_drag = None
+        widget.tabBar.return_value.drag_in_progress = True
+        mocker.patch.object(treetabwidget, 'shift_held', return_value=True)
+        return widget
+
+    def test_moves_nothing_while_dragging(self, mocker, widget):
+        tab = mocker.Mock()
+        widget._tree_tab.return_value = tab
+
+        # QTabBar passes the indices backwards while dragging.
+        treetabwidget.TreeTabWidget.on_tab_moved(widget, 1, 0)
+
+        assert widget._subtree_drag is tab
+        widget.tree_tab_update.assert_not_called()
+
+    def test_drop_moves_the_tree(self, mocker, widget):
+        tabs = {}
+        for name in ['one', 'two', 'three']:
+            tabs[name] = mocker.Mock(name=name)
+        tabs['one'].node = Node(tabs['one'], parent=widget.tree_root)
+        tabs['two'].node = Node(tabs['two'], parent=tabs['one'].node)
+        tabs['three'].node = Node(tabs['three'], parent=widget.tree_root)
+        # one was dragged below three, its child two stayed put.
+        tab_bar = [tabs['two'], tabs['three'], tabs['one']]
+        widget.count.return_value = len(tab_bar)
+        widget.indexOf.side_effect = tab_bar.index
+        widget._tree_tab.side_effect = tab_bar.__getitem__
+        widget._subtree_drag = tabs['one']
+
+        treetabwidget.TreeTabWidget.on_drag_finished(widget)
+
+        assert [node.value for node in widget.tree_root.children] == [
+            tabs['three'], tabs['one']]
+        assert tabs['one'].node.children == (tabs['two'].node,)
+        assert widget._subtree_drag is None
+        widget.tree_tab_update.assert_called_once_with()
+
+    def test_tab_closed_during_drag(self, mocker, widget):
+        widget._subtree_drag = mocker.Mock()
+        widget.indexOf.return_value = -1
+        treetabwidget.TreeTabWidget.on_drag_finished(widget)
+        widget.tree_tab_update.assert_not_called()
+
+    def test_click_without_drag(self, widget):
+        treetabwidget.TreeTabWidget.on_drag_finished(widget)
+        widget.tree_tab_update.assert_not_called()

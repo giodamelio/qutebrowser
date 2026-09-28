@@ -405,6 +405,27 @@ class Node(Generic[T]):
         else:
             to.checked_parent().insert_child(self, before=to)
 
+    def drop_recursive(self, above: 'Node[T] | None',
+                       below: 'Node[T] | None') -> None:
+        """Move this node and its children to where it was dropped.
+
+        For a tab dragged with its children: `above` and `below` are the shown
+        nodes it was dropped between, None at either end. Dropped below a node
+        with shown children, it becomes that node's first child, like drag()
+        does. Dropped among its own children, nothing moves.
+        """
+        nodes = list(self.path[0].traverse(render_collapsed=False))[1:]
+        from_idx = nodes.index(self)
+        if above is not None and nodes.index(above) > from_idx:
+            if self in above.path:
+                return
+            if above.children and not above.collapsed:
+                above.insert_child(self, idx=0)
+            else:
+                above.checked_parent().insert_child(self, after=above)
+        elif below is not None and nodes.index(below) < from_idx:
+            below.checked_parent().insert_child(self, before=below)
+
     def drag(self, direction: str) -> None:
         """Move this tab a single place in the list of nodes."""
         # move() implementation that only supports moving a single step at a
