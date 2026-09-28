@@ -108,6 +108,51 @@ in
     QT_QPA_PLATFORM_PLUGIN_PATH = "${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix}/platforms";
   };
 
+  # The same override as giodamelio/giopkgs' qutebrowser package, but built
+  # from this checkout. Build it with `devenv build outputs.qutebrowser`.
+  outputs.qutebrowser = pkgs.qutebrowser.overrideAttrs (oldAttrs: {
+    version = "${lib.head (builtins.match ''.*__version__ = "([^"]+)".*''
+      (builtins.readFile ./qutebrowser/__init__.py))}-dev";
+
+    src = lib.fileset.toSource {
+      root = ./.;
+      fileset = lib.fileset.difference ./. (lib.fileset.unions (map lib.fileset.maybeMissing [
+        ./.benchmarks
+        ./.claude
+        ./.devenv
+        ./.direnv
+        ./.git
+        ./.hypothesis
+        ./.jj
+        ./.mypy_cache
+        ./.pytest_cache
+        ./.superpowers
+        ./.workspaces
+        ./NEW-SESSIONS-DESIGN.md
+        ./docs
+        ./relative
+        ./tmp
+      ]));
+    };
+
+    meta = oldAttrs.meta // {
+      description = "qutebrowser from giodamelio's fork, built from this checkout";
+    };
+  });
+
+  # Built at run time rather than referenced from here, so entering the shell
+  # doesn't rebuild the browser after every source change.
+  tasks = let
+    run = args: ''
+      cd "$DEVENV_ROOT"
+      out=$(devenv build outputs.qutebrowser | ${pkgs.jq}/bin/jq -r '."outputs.qutebrowser"')
+      exec "$out/bin/qutebrowser" ${args}
+    '';
+  in {
+    "qutebrowser:run".exec = run "";
+    "qutebrowser:run-temp".exec = run "--temp-basedir";
+  };
+
   enterShell = ''
     echo "qutebrowser development environment"
     echo "Run: python -m qutebrowser --debug --temp-basedir"
