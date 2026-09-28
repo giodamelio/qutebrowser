@@ -60,6 +60,7 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<config-source,config-source>>|Read a config.py file.
 |<<config-unset,config-unset>>|Unset an option.
 |<<config-write-py,config-write-py>>|Write the current configuration to a config.py file.
+|<<container-color,container-color>>|Change the color of the current window's container.
 |<<container-delete,container-delete>>|Delete a runtime container and its data.
 |<<container-list,container-list>>|Show every container on qute://containers.
 |<<container-new,container-new>>|Create a runtime container.
@@ -536,6 +537,17 @@ Write the current configuration to a config.py file.
 ==== optional arguments
 * +*-f*+, +*--force*+: Force overwriting existing files.
 * +*-d*+, +*--defaults*+: Write the defaults instead of values configured via :set.
+
+[[container-color]]
+=== container-color
+Syntax: +:container-color 'color'+
+
+Change the color of the current window's container.
+
+A runtime container keeps the color in its own record, so renaming it keeps the color. Any other container gets it through the `containers` setting.
+
+==== positional arguments
+* +'color'+: The new color, in any format the `colors.*` settings accept.
 
 [[container-delete]]
 === container-delete

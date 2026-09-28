@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import logging
+import types
 
 import pytest
 
@@ -258,3 +259,67 @@ def test_container_rename_rollback_session_write_failure(
     new_data, _new_cache = container_registry.storage_paths('new')
     assert (new_data / 'Cookies').read_text(encoding='utf-8') == 'x'
     assert not data.exists()
+
+
+def open_window(session):
+    objreg.window_registry[0] = types.SimpleNamespace(session=session)
+    return 0
+
+
+@pytest.fixture
+def config_changes(config_stub, container_registry):
+    config_stub.changed.connect(container_registry.on_config_changed)
+
+
+def test_container_color_runtime(manager, container_registry, config_stub):
+    container_registry.add('work', '#111111')
+    win_id = open_window(manager.new_session('a', container='work'))
+    containercommands.container_color('#222222', win_id=win_id)
+    assert container_registry.get('work') == containers.Container(
+        'work', '#222222', 'runtime')
+    assert config_stub.val.containers == {}
+
+
+def test_container_color_survives_rename(manager, container_registry):
+    container_registry.add('old', '#111111')
+    win_id = open_window(manager.new_session('a', container='old'))
+    containercommands.container_color('#222222', win_id=win_id)
+    containercommands.container_rename('old', 'new')
+    assert container_registry.get('new') == containers.Container(
+        'new', '#222222', 'runtime')
+
+
+@pytest.mark.parametrize('name, declared', [
+    ('default', {}),
+    ('decl', {'decl': {'color': 'red'}, 'other': {'color': 'blue'}}),
+])
+def test_container_color_config(manager, container_registry, config_stub,
+                                config_changes, yaml_config_stub, name,
+                                declared):
+    config_stub.val.containers = declared
+    win_id = open_window(manager.new_session('a', container=name))
+    containercommands.container_color('#222222', win_id=win_id)
+    expected = {**declared, name: {'color': '#222222'}}
+    assert config_stub.val.containers == expected
+    assert yaml_config_stub._values['containers'].get_for_url(
+        fallback=False) == expected
+    assert container_registry.get(name) == containers.Container(
+        name, '#222222', 'declared')
+
+
+@pytest.mark.parametrize('name', ['work', 'default'])
+def test_container_color_invalid(manager, container_registry, config_stub,
+                                 name):
+    container_registry.add('work', '#111111')
+    win_id = open_window(manager.new_session('a', container=name))
+    with pytest.raises(cmdutils.CommandError, match="nope"):
+        containercommands.container_color('nope', win_id=win_id)
+    assert config_stub.val.containers == {}
+    assert container_registry.get('work').color == '#111111'
+
+
+def test_container_color_private(manager):
+    win_id = open_window(manager.new_private())
+    with pytest.raises(cmdutils.CommandError,
+                       match="Private sessions don't use a container"):
+        containercommands.container_color('#222222', win_id=win_id)

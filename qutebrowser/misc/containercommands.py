@@ -2,14 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Commands to create, delete and rename runtime containers."""
+"""Commands to create, delete, rename and recolor containers."""
 
 from qutebrowser.api import cmdutils
 from qutebrowser.browser import sessionpages
 from qutebrowser.browser.webengine import profiles
 from qutebrowser.completion.models import miscmodels
+from qutebrowser.config import config, configexc
 from qutebrowser.mainwindow import windowsessions
 from qutebrowser.misc import containers
+from qutebrowser.utils import objreg
 
 
 def _runtime_container(name: str, action: str) -> None:
@@ -126,6 +128,37 @@ def container_rename(old: str, new: str) -> None:
             f"Renamed container {old} to {new}, but these sessions still use "
             f"{old}, and their data now lives under container {new}: "
             f"{_describe_failures(failed)}")
+
+
+@cmdutils.register()
+@cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+def container_color(color: str, *, win_id: int | None = None) -> None:
+    """Change the color of the current window's container.
+
+    A runtime container keeps the color in its own record, so renaming it
+    keeps the color. Any other container gets it through the `containers`
+    setting.
+
+    Args:
+        color: The new color, in any format the `colors.*` settings accept.
+    """
+    assert win_id is not None
+    session = objreg.window_registry[win_id].session
+    if session.private:
+        raise cmdutils.CommandError("Private sessions don't use a container")
+    container = containers.registry.get(session.container)
+    if container.source == 'runtime':
+        try:
+            containers.registry.set_color(container.name, color)
+        except containers.Error as e:
+            raise cmdutils.CommandError(str(e))
+        return
+    declared = dict(config.instance.get_obj('containers') or {})
+    declared[container.name] = {'color': color}
+    try:
+        config.instance.set_obj('containers', declared, save_yaml=True)
+    except configexc.Error as e:
+        raise cmdutils.CommandError(str(e))
 
 
 @cmdutils.register()

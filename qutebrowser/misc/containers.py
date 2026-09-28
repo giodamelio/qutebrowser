@@ -164,6 +164,16 @@ class ContainerRegistry(QObject):
         self._write({**self._runtime, name: {'color': color}})
         self._merge()
 
+    def set_color(self, name: str, color: str) -> None:
+        """Change a runtime container's color."""
+        assert name in self._runtime, name
+        try:
+            configtypes.QtColor().to_py(color)
+        except configexc.ValidationError as e:
+            raise Error(f"Invalid color {color!r}: {e}")
+        self._write({**self._runtime, name: {'color': color}})
+        self._merge()
+
     def remove(self, name: str) -> None:
         """Remove a runtime container."""
         assert name in self._runtime, name

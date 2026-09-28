@@ -104,6 +104,21 @@ def test_remove_and_rename(container_registry, data_dir, cache_dir):
     assert reloaded.get('job').color == '#111111'
 
 
+def test_set_color(container_registry, data_dir, cache_dir, qtbot):
+    container_registry.add('work', '#111111')
+    with qtbot.wait_signal(container_registry.merged):
+        container_registry.set_color('work', '#222222')
+    assert make_registry(data_dir, cache_dir).get('work') == (
+        containers.Container('work', '#222222', 'runtime'))
+
+
+def test_set_color_rejects_bad_color(container_registry):
+    container_registry.add('work', '#111111')
+    with pytest.raises(containers.Error, match="Invalid color 'nope'"):
+        container_registry.set_color('work', 'nope')
+    assert container_registry.get('work').color == '#111111'
+
+
 def test_get_unknown(container_registry):
     with pytest.raises(containers.UnknownContainerError,
                        match='Container nope not found!'):
