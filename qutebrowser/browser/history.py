@@ -157,6 +157,10 @@ class WebHistory(sql.SqlTable):
     history_cleared = pyqtSignal()
     # one url cleared
     url_cleared = pyqtSignal(QUrl)
+    # An entry was added to or replaced in CompletionHistory.
+    completion_added = pyqtSignal(str, str, int)
+    # An entry was removed from CompletionHistory.
+    completion_removed = pyqtSignal(str)
 
     def __init__(self, database: sql.Database, progress: HistoryProgress,
                  parent: QObject | None = None) -> None:
@@ -368,8 +372,10 @@ class WebHistory(sql.SqlTable):
         """
         qurl = QUrl(url)
         qtutils.ensure_valid(qurl)
+        completion_url = self._format_completion_url(qurl)
         self.delete('url', self._format_url(qurl))
-        self.completion.delete('url', self._format_completion_url(qurl))
+        self.completion.delete('url', completion_url)
+        self.completion_removed.emit(completion_url)
         if self._last_url == url:
             self._last_url = None
         self.url_cleared.emit(qurl)
@@ -421,11 +427,13 @@ class WebHistory(sql.SqlTable):
             if redirect or self._is_excluded_from_completion(url):
                 return
 
+            completion_url = self._format_completion_url(url)
             self.completion.insert({
-                'url': self._format_completion_url(url),
+                'url': completion_url,
                 'title': title,
                 'last_atime': atime
             }, replace=True)
+            self.completion_added.emit(completion_url, title, atime)
 
     def _format_url(self, url):
         return url.toString(QUrl.UrlFormattingOption.RemovePassword | QUrl.ComponentFormattingOption.FullyEncoded)
