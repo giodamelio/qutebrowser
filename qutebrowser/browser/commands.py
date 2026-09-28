@@ -444,13 +444,14 @@ class CommandDispatcher:
     @cmdutils.register(instance='command-dispatcher', scope='window',
                        maxsplit=0)
     @cmdutils.argument('index', completion=miscmodels.other_tabs)
-    def tab_take(self, index, keep=False):
+    def tab_take(self, index, keep=False, recursive=False):
         """Take a tab from another window.
 
         Args:
             index: The [win_id/]index of the tab to take. Or a substring
                    in which case the closest match will be taken.
             keep: If given, keep the old tab around.
+            recursive: Take the tab's children too (tree-tabs).
         """
         if config.val.tabs.tabs_are_windows:
             raise cmdutils.CommandError("Can't take tabs when using "
@@ -462,16 +463,21 @@ class CommandDispatcher:
             raise cmdutils.CommandError("Can't take a tab from the same "
                                         "window")
 
+        if (recursive and tabbed_browser.is_treetabbedbrowser and
+                self._tabbed_browser.is_treetabbedbrowser):
+            self._move_tab_tree(tabbed_browser, tab.node, self._tabbed_browser,
+                                keep)
+            return
+
         self._open(tab.url(), tab=True)
         if not keep:
             # Only tabs in the tab bar can be closed.
             tabbed_browser.reveal_tab(tab)
             tabbed_browser.close_tab(tab, add_undo=False, transfer=True)
 
-    def _tree_tab_give(self, tabbed_browser, keep):
-        """Recursive tab-give, move current tab and children to tabbed_browser."""
+    def _move_tab_tree(self, source, current_node, tabbed_browser, keep):
+        """Move a tab and its children from source to tabbed_browser."""
         new_tab_map = {}  # old_uid -> new tab
-        current_node = self._current_widget().node
         for node in current_node.traverse(
             notree.TraverseOrder.PRE,
             render_collapsed=True
@@ -491,7 +497,7 @@ class CommandDispatcher:
 
         tabbed_browser.widget.setCurrentWidget(new_tab_map[current_node.uid])
         if not keep:
-            self._tabbed_browser.close_tab(
+            source.close_tab(
                 current_node.value,
                 add_undo=False,
                 transfer=True,
@@ -545,7 +551,9 @@ class CommandDispatcher:
                     "The window with id {} is not private".format(win_id))
 
         if recursive and tabbed_browser.is_treetabbedbrowser:
-            self._tree_tab_give(tabbed_browser, keep)
+            self._move_tab_tree(self._tabbed_browser,
+                                self._current_widget().node, tabbed_browser,
+                                keep)
         else:
             tabbed_browser.tabopen(self._current_url())
             if not keep:

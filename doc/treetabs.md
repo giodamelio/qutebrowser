@@ -64,7 +64,8 @@ You can change how tabs relate to each other after they are created too.
   it that tab's first child, dragging it further moves it past each child in
   turn. Its own children stay where they were. A collapsed tab moves like a
   tab without children and takes its hidden children with it.
-* `:tab-take` takes a single tab, not its children.
+* `:tab-take --recursive` takes a tab and its children from another window,
+  like `:tab-give --recursive` gives them.
 
 Other pre-existing commands that understand tab groups are:
 
