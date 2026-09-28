@@ -5,9 +5,16 @@
 """Functions that return config-related completion models."""
 
 from qutebrowser.config import configdata, configexc
+from qutebrowser.completion import fuzzy
 from qutebrowser.completion.models import completionmodel, listcategory, util
 from qutebrowser.commands import parser, cmdexc
 from qutebrowser.keyinput import keyutils
+
+
+# name, description, bindings
+_COMMAND_COLUMNS = [fuzzy.Column(0, 1.0), fuzzy.Column(1, 0.4), fuzzy.Column(2, 0.6)]
+# name, description, value
+_SETTING_COLUMNS = [fuzzy.Column(0, 1.0), fuzzy.Column(1, 0.4), fuzzy.Column(2, 0.3)]
 
 
 def option(*, info):
@@ -22,8 +29,8 @@ def customized_option(*, info):
                 info.config.get_str(values.opt.name))
                for values in info.config
                if values)
-    model.add_category(listcategory.ListCategory("Customized options",
-                                                 options))
+    model.add_category(listcategory.ListCategory(
+        "Customized options", options, columns=_SETTING_COLUMNS))
     return model
 
 
@@ -60,7 +67,8 @@ def _option(info, title, predicate):
     options = ((opt.name, opt.description, info.config.get_str(opt.name))
                for opt in configdata.DATA.values()
                if predicate(opt))
-    model.add_category(listcategory.ListCategory(title, options))
+    model.add_category(listcategory.ListCategory(
+        title, options, columns=_SETTING_COLUMNS))
     return model
 
 
@@ -138,5 +146,6 @@ def bind(key, *, info):
 
     cmdlist = util.get_cmd_completions(info, include_hidden=True,
                                        include_aliases=True)
-    model.add_category(listcategory.ListCategory("Commands", cmdlist))
+    model.add_category(listcategory.ListCategory(
+        "Commands", cmdlist, columns=_COMMAND_COLUMNS))
     return model

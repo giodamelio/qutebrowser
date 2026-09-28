@@ -10,9 +10,26 @@ from collections.abc import Sequence
 
 from qutebrowser.config import config, configdata
 from qutebrowser.utils import objreg, log, utils
+from qutebrowser.completion import fuzzy
 from qutebrowser.completion.models import completionmodel, listcategory, util
 from qutebrowser.browser import inspector
 from qutebrowser.misc import sessionfile
+
+
+# name, description, bindings
+_COMMAND_COLUMNS = [fuzzy.Column(0, 1.0), fuzzy.Column(1, 0.4), fuzzy.Column(2, 0.6)]
+# name, source
+_CONTAINER_COLUMNS = [fuzzy.Column(0, 1.0), fuzzy.Column(1, 0.2)]
+# index, url, title; PID (column 3) isn't scored
+_TAB_COLUMNS = [
+    fuzzy.Column(0, 1.5, 'suffix'), fuzzy.Column(1, 0.8), fuzzy.Column(2, 1.0)]
+# index, url, title; time (column 3) isn't scored
+_BACK_FORWARD_COLUMNS = [
+    fuzzy.Column(0, 1.0, 'prefix'), fuzzy.Column(1, 0.8), fuzzy.Column(2, 1.0)]
+# index, urls; time (column 2) isn't scored
+_UNDO_COLUMNS = [fuzzy.Column(0, 1.0, 'prefix'), fuzzy.Column(1, 0.8)]
+# name, description, value
+_SETTING_COLUMNS = [fuzzy.Column(0, 1.0), fuzzy.Column(1, 0.4), fuzzy.Column(2, 0.3)]
 
 
 def command(*, info):
@@ -20,7 +37,8 @@ def command(*, info):
     model = completionmodel.CompletionModel(column_widths=(20, 60, 20))
     cmdlist = util.get_cmd_completions(info, include_aliases=True,
                                        include_hidden=False)
-    model.add_category(listcategory.ListCategory("Commands", cmdlist))
+    model.add_category(listcategory.ListCategory(
+        "Commands", cmdlist, columns=_COMMAND_COLUMNS))
     return model
 
 
@@ -33,8 +51,10 @@ def helptopic(*, info):
     settings = ((opt.name, opt.description, info.config.get_str(opt.name))
                 for opt in configdata.DATA.values())
 
-    model.add_category(listcategory.ListCategory("Commands", cmdlist))
-    model.add_category(listcategory.ListCategory("Settings", settings))
+    model.add_category(listcategory.ListCategory(
+        "Commands", cmdlist, columns=_COMMAND_COLUMNS))
+    model.add_category(listcategory.ListCategory(
+        "Settings", settings, columns=_SETTING_COLUMNS))
     return model
 
 
@@ -90,7 +110,8 @@ def container(*, info=None):
     utils.unused(info)
     model = completionmodel.CompletionModel()
     items = ((c.name, c.source) for c in containers.registry.containers())
-    model.add_category(listcategory.ListCategory("Containers", items))
+    model.add_category(listcategory.ListCategory(
+        "Containers", items, columns=_CONTAINER_COLUMNS))
     return model
 
 
@@ -101,7 +122,8 @@ def runtime_container(*, info=None):
     model = completionmodel.CompletionModel()
     items = ((c.name, c.source) for c in containers.registry.containers()
              if c.source == 'runtime')
-    model.add_category(listcategory.ListCategory("Containers", items))
+    model.add_category(listcategory.ListCategory(
+        "Containers", items, columns=_CONTAINER_COLUMNS))
     return model
 
 
@@ -172,12 +194,14 @@ def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=Non
         else:
             title = str(win_id) if add_win_id else "Tabs"
             cat = listcategory.ListCategory(
-                title, tab_entries, delete_func=delete_tab, sort=False)
+                title, tab_entries, delete_func=delete_tab, sort=False,
+                columns=_TAB_COLUMNS)
             model.add_category(cat)
 
     if tabs_are_windows:
         win = listcategory.ListCategory(
-            "Windows", windows, delete_func=delete_tab, sort=False)
+            "Windows", windows, delete_func=delete_tab, sort=False,
+            columns=_TAB_COLUMNS)
         model.add_category(win)
 
     return model
@@ -283,7 +307,8 @@ def _back_forward(info, go_forward):
         # make sure the most recent is at the top for :back
         entries.reverse()
 
-    cat = listcategory.ListCategory("History", entries, sort=False)
+    cat = listcategory.ListCategory(
+        "History", entries, sort=False, columns=_BACK_FORWARD_COLUMNS)
     model.add_category(cat)
     return model
 
@@ -321,7 +346,8 @@ def undo(*, info):
         enumerate(reversed(tabbed_browser.undo_stack), start=1)
     ]
 
-    cat = listcategory.ListCategory("Closed tabs", entries, sort=False)
+    cat = listcategory.ListCategory(
+        "Closed tabs", entries, sort=False, columns=_UNDO_COLUMNS)
     model.add_category(cat)
     return model
 
