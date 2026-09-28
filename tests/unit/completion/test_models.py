@@ -245,6 +245,25 @@ def test_command_completion(qtmodeltester, cmdutils_stub, configdata_stub,
     })
 
 
+def test_command_name_beats_description(qtmodeltester, cmdutils_stub,
+                                        configdata_stub, key_config_stub, info):
+    """A command whose name matches outranks one that only matches by desc.
+
+    "quit" matches "quit" in its name (weight 1.0); the "q" alias only
+    matches "quit" in its description, "Alias for 'quit'" (weight 0.4).
+    """
+    model = miscmodels.command(info=info)
+    model.set_pattern('quit')
+    qtmodeltester.check(model)
+
+    _check_completions(model, {
+        "Commands": [
+            ('quit', 'quit qutebrowser', 'ZQ, <Ctrl+q>'),
+            ('q', "Alias for 'quit'", ''),
+        ]
+    })
+
+
 def test_help_completion(qtmodeltester, cmdutils_stub, key_config_stub,
                          configdata_stub, config_stub, info):
     """Test the results of command completion.
@@ -925,6 +944,26 @@ def test_tab_completion_not_sorted(qtmodeltester, fake_web_tab, win_registry,
 
     _check_completions(model, {
         '0': expected,
+        '1': [],
+    })
+
+
+def test_tab_completion_index_suffix(qtmodeltester, fake_web_tab, win_registry,
+                                     tabbed_browser_stubs):
+    """A tab index matched by suffix ranks the tighter match first."""
+    tabbed_browser_stubs[0].widget.tabs = [
+        fake_web_tab(QUrl('https://a.example/'), 'Page One', idx)
+        for idx in range(13)
+    ]
+    model = miscmodels.tabs()
+    model.set_pattern('3')
+    qtmodeltester.check(model)
+
+    _check_completions(model, {
+        '0': [
+            ('0/3', 'https://a.example/', 'Page One'),
+            ('0/13', 'https://a.example/', 'Page One'),
+        ],
         '1': [],
     })
 

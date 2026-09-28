@@ -176,6 +176,16 @@ class TestSelectPrompt:
         prompt.accept()
         assert prompt.question.answer == 'mail'
 
+    def test_typing_filters_without_reordering(self, qtbot, get_prompt):
+        """A better match doesn't jump ahead; SelectPrompt passes rank=False."""
+        options = [
+            ('a', 'zzzwork', 'A'),
+            ('b', 'work', 'B'),
+        ]
+        prompt = get_prompt(options=options)
+        qtbot.keyClicks(prompt._lineedit, 'work')
+        assert self._labels(prompt) == ['zzzwork', 'work']
+
     def test_nothing_matches(self, qtbot, get_prompt):
         prompt = get_prompt()
         qtbot.keyClicks(prompt._lineedit, 'zzz')

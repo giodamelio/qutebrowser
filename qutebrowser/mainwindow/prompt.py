@@ -1035,9 +1035,10 @@ class SelectPrompt(_BasePrompt):
         self._vbox.addWidget(self._lineedit)
         self.setFocusProxy(self._lineedit)
 
-        # Unsorted, so rows stay grouped the way the asker ordered them.
+        # Filtered without reordering, so rows stay grouped the way the
+        # asker ordered them.
         self._model = listcategory.ListCategory(
-            '', question.options, sort=False, parent=self)
+            '', question.options, sort=False, rank=False, parent=self)
         self._view = QTreeView(self)
         self._view.setModel(self._model)
         self._view.setHeaderHidden(True)
