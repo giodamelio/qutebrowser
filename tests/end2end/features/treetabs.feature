@@ -574,3 +574,32 @@ Feature: Tree tab management
               - about:blank?five
           - about:blank?six
           """
+
+    Scenario: :tab-take --recursive
+        When I open data/numbers/1.txt
+        And I open data/numbers/2.txt in a new related tab
+        And I open data/numbers/3.txt in a new tab
+        And I open data/numbers/4.txt in a new window
+        And I run :tab-take --recursive 1.txt
+        And I wait until data/numbers/2.txt is loaded
+        Then the session should look like:
+            """
+            windows:
+            - tabs:
+              - history:
+                - url: http://localhost:*/data/numbers/3.txt
+            - tabs:
+              - history:
+                - url: http://localhost:*/data/numbers/4.txt
+              - history:
+                - url: http://localhost:*/data/numbers/1.txt
+              - history:
+                - url: http://localhost:*/data/numbers/2.txt
+            """
+        And I run :window-only
+        And the following tabs should be open:
+            """
+            - data/numbers/4.txt
+            - data/numbers/1.txt (active)
+              - data/numbers/2.txt
+            """

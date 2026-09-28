@@ -1571,7 +1571,7 @@ The tab index to focus, starting with 1.
 
 [[tab-take]]
 === tab-take
-Syntax: +:tab-take [*--keep*] 'index'+
+Syntax: +:tab-take [*--keep*] [*--recursive*] 'index'+
 
 Take a tab from another window.
 
@@ -1581,6 +1581,7 @@ Take a tab from another window.
 
 ==== optional arguments
 * +*-k*+, +*--keep*+: If given, keep the old tab around.
+* +*-r*+, +*--recursive*+: Take the tab's children too (tree-tabs).
 
 ==== note
 * This command does not split arguments after the last argument and handles quotes literally.
