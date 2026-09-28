@@ -1,5 +1,6 @@
 Jinja2
 PyYAML
+frizbee
 
 ## Only used on macOS to make borderless windows resizable
 # Not needed anymore with Qt 6.3, but we can't express that
