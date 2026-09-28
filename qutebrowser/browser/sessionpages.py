@@ -77,24 +77,23 @@ class ClosedWindowRow:
 @dataclasses.dataclass(frozen=True)
 class SessionRow:
 
-    """One saved session on qute://sessions."""
+    """One session on qute://sessions: saved, or open and private."""
 
     name: str
-    container: str
-    swatch: str
-    is_open: bool
-    counts: str
-    last_saved: str
+    container: str | None
+    swatch: str | None
+    state: str
+    windows: int
+    tabs: int
+    last_saved: datetime.datetime | None
     closed_windows: list[ClosedWindowRow]
 
-
-@dataclasses.dataclass(frozen=True)
-class PrivateRow:
-
-    """One open private session on qute://sessions."""
-
-    name: str
-    counts: str
+    @property
+    def last_saved_text(self) -> str:
+        """Get the last save time as the page shows it."""
+        if self.last_saved is None:
+            return 'never'
+        return self.last_saved.strftime(_TIME_FORMAT)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -111,37 +110,29 @@ class UnreadableRow:
     listed: bool
 
 
-def _plural(number: int, noun: str) -> str:
-    return f'{number} {noun}' if number == 1 else f'{number} {noun}s'
-
-
-def _counts(windows: int, tabs: int) -> str:
-    return f"{_plural(windows, 'window')}, {_plural(tabs, 'tab')}"
-
-
-def _live_counts(session: windowsessions.Session) -> str:
+def _live_counts(session: windowsessions.Session) -> tuple[int, int]:
     tabs = sum(len(objreg.window_registry[win_id].tabbed_browser.widgets())
                for win_id in session.windows)
-    return _counts(len(session.windows), tabs)
+    return len(session.windows), tabs
 
 
-def _saved_counts(windows: Sequence[Mapping[str, Any]]) -> str:
+def _saved_counts(windows: Sequence[Mapping[str, Any]]) -> tuple[int, int]:
     tabs = sum(len(window['tabs']) if isinstance(window.get('tabs'), list)
                else 0 for window in windows)
-    return _counts(len(windows), tabs)
+    return len(windows), tabs
 
 
-def _last_saved(session: windowsessions.Session) -> str:
-    when = session.last_saved
-    if when is None:
-        # last_saved only covers saves in this run; the file's modification
-        # time says when an earlier run saved it.
-        try:
-            mtime = windowsessions.manager.path_for(session).stat().st_mtime
-        except OSError:
-            return 'never'
-        when = datetime.datetime.fromtimestamp(mtime)
-    return when.strftime(_TIME_FORMAT)
+def _last_saved(
+        session: windowsessions.Session) -> datetime.datetime | None:
+    if session.last_saved is not None:
+        return session.last_saved
+    # last_saved only covers saves in this run; the file's modification
+    # time says when an earlier run saved it.
+    try:
+        mtime = windowsessions.manager.path_for(session).stat().st_mtime
+    except OSError:
+        return None
+    return datetime.datetime.fromtimestamp(mtime)
 
 
 def _normalize_iso_z(value: str) -> str:
@@ -223,23 +214,33 @@ def qute_sessions(_url: QUrl) -> tuple[str, str]:
             name=session.name,
             container=session.container,
             swatch=_swatch(session.container),
-            is_open=session.is_open,
-            counts=(_live_counts(session) if session.is_open
-                    else _saved_counts(session.saved_windows)),
+            state='open' if session.is_open else 'closed',
+            windows=windows,
+            tabs=tabs,
             last_saved=_last_saved(session),
             closed_windows=_closed_windows(session),
         )
         for session in manager.sessions() if not session.private
+        for windows, tabs in [_live_counts(session) if session.is_open
+                              else _saved_counts(session.saved_windows)]
     ]
-    private = [PrivateRow(name=session.name, counts=_live_counts(session))
-               for session in manager.private_sessions()]
+    private = [
+        SessionRow(name=session.name, container=None, swatch=None,
+                   state='private', windows=windows, tabs=tabs,
+                   last_saved=None, closed_windows=[])
+        for session in manager.private_sessions()
+        for windows, tabs in [_live_counts(session)]
+    ]
     listed = {row.name for row in saved}
     unreadable = [UnreadableRow(path=path, name=path.name,
                                 listed=path.name in listed)
                   for path in manager.unreadable_paths()]
+    # Stable, so sessions saved at the same time (or never) keep name order.
+    rows = sorted(saved + private, reverse=True,
+                  key=lambda row: row.last_saved or datetime.datetime.min)
     return 'text/html', jinja.render(
-        'sessions.html', title='Sessions', saved=saved, private=private,
-        unreadable=unreadable, set_aside=manager.set_aside_paths())
+        'sessions.html', title='Sessions', rows=rows, unreadable=unreadable,
+        set_aside=manager.set_aside_paths())
 
 
 def open_page(url: str, win_id: int, *, tab: bool, bg: bool,
