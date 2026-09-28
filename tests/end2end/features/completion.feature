@@ -110,3 +110,35 @@ Feature: Using completion
         And I run :click-element id qute-input
         And I run :fake-key -g someinput
         Then the javascript message "contents: someinput" should be logged
+
+    Scenario: Fuzzy tab completion
+        Given I have a fresh instance
+        When I open data/title.html
+        And I open data/click_element.html in a new tab
+        And I open data/data_link.html in a new tab
+        And I run :cmd-set-text -s :tab-select
+        And I wait for "Setting completion pattern ''" in the log
+        And I run :cmd-set-text -a click_el
+        And I wait for "Setting completion pattern 'click_el'" in the log
+        And I run :completion-item-focus next
+        And I wait for "setting text = ':tab-select 0/2', *" in the log
+        And I run :command-accept
+        Then the following tabs should be open:
+            """
+            - data/title.html
+            - data/click_element.html (active)
+            - data/data_link.html
+            """
+
+    Scenario: History completion sees a page visited this run
+        When I run :debug-pyeval --quiet objects.debug_flags.remove('no-sql-history')
+        And I run :history-clear --force
+        And I open data/title.html
+        And I wait for "INSERT INTO History *" in the log
+        And I run :cmd-set-text -s :open
+        And I wait for "Setting completion pattern ''" in the log
+        And I run :cmd-set-text -a tsttl
+        And I wait for "Setting completion pattern 'tsttl'" in the log
+        And I run :completion-item-focus next
+        And I run :command-accept
+        Then data/title.html should be loaded
