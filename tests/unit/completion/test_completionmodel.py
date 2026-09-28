@@ -92,6 +92,16 @@ def test_delete_cur_item_no_func():
     callback.assert_not_called()
 
 
+def test_match_positions():
+    model = completionmodel.CompletionModel()
+    cat = listcategory.ListCategory('Foo', [('foobar', '')])
+    model.add_category(cat)
+    cat.set_pattern('foo')
+    parent = model.index(0, 0)
+    assert model.match_positions(model.index(0, 0, parent)) == [0, 1, 2]
+    assert model.match_positions(parent) is None
+
+
 def test_delete_cur_item_no_cat():
     """Test completion_item_del with no selected category."""
     callback = mock.Mock(spec=[])

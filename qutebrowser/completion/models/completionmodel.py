@@ -218,6 +218,20 @@ class CompletionModel(QAbstractItemModel):
                 return index
         return QModelIndex()
 
+    def match_positions(self, index: QModelIndex) -> "list[int] | None":
+        """Positions the pattern matched in this item's cell, if known.
+
+        Args:
+            index: index of the item to check.
+
+        Return: A list of character offsets, or None for a category header
+                or a category that doesn't report positions.
+        """
+        cat = self._cat_from_idx(index.parent())
+        if not cat:
+            return None
+        return cat.match_positions(index.row(), index.column())
+
     def columns_to_filter(self, index):
         """Return the column indices the filter pattern applies to.
 

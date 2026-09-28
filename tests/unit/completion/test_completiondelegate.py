@@ -64,6 +64,24 @@ def test_pattern_hypothesis(text):
     completiondelegate._Highlighter(doc, text, Qt.GlobalColor.red)
 
 
+@pytest.mark.parametrize('positions, segments', [
+    ([0, 1, 2], [(0, 3)]),
+    ([3, 4, 5], [(3, 3)]),
+    ([0, 2, 4], [(0, 1), (2, 1), (4, 1)]),
+    ([], []),
+])
+def test_highlight_positions(positions, segments):
+    doc = QTextDocument('foobar')
+    highlighter = completiondelegate._PositionHighlighter(
+        doc, positions, Qt.GlobalColor.red)
+    highlighter.setFormat = mock.Mock()
+    highlighter.highlightBlock('foobar')
+    highlighter.setFormat.assert_has_calls([
+        mock.call(s[0], s[1], mock.ANY) for s in segments
+    ])
+    assert highlighter.setFormat.call_count == len(segments)
+
+
 def test_highlighted(qtbot):
     """Make sure highlighting works.
 

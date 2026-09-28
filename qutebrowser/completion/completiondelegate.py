@@ -17,7 +17,7 @@ from qutebrowser.qt.gui import (QIcon, QPalette, QTextDocument, QTextOption,
                          QTextCharFormat)
 
 from qutebrowser.config import config
-from qutebrowser.utils import qtutils
+from qutebrowser.utils import qtutils, utils
 from qutebrowser.completion import completionwidget
 
 
@@ -45,6 +45,40 @@ class _Highlighter(QSyntaxHighlighter):
                 match.capturedLength(),
                 self._format
             )
+
+
+def _consecutive_runs(positions: "list[int]") -> "list[tuple[int, int]]":
+    """Group sorted character offsets into (start, length) runs.
+
+    Args:
+        positions: Sorted character offsets, as returned by
+                   BaseCategory.match_positions.
+
+    Return: A list of (start, length) tuples, one per run of consecutive
+            offsets.
+    """
+    runs: "list[tuple[int, int]]" = []
+    for pos in positions:
+        if runs and pos == runs[-1][0] + runs[-1][1]:
+            runs[-1] = (runs[-1][0], runs[-1][1] + 1)
+        else:
+            runs.append((pos, 1))
+    return runs
+
+
+class _PositionHighlighter(QSyntaxHighlighter):
+
+    def __init__(self, doc, positions, color):
+        super().__init__(doc)
+        self._format = QTextCharFormat()
+        self._format.setForeground(color)
+        self._runs = _consecutive_runs(positions)
+
+    def highlightBlock(self, text):
+        """Override highlightBlock for custom highlighting."""
+        utils.unused(text)
+        for start, length in self._runs:
+            self.setFormat(start, length, self._format)
 
 
 class CompletionItemDelegate(QStyledItemDelegate):
@@ -191,6 +225,13 @@ class CompletionItemDelegate(QStyledItemDelegate):
         self._doc.documentLayout().draw(self._painter, ctx)
         self._painter.restore()
 
+    def _match_color(self):
+        """The foreground color for a matched-character highlight."""
+        assert self._opt is not None
+        if self._opt.state & QStyle.StateFlag.State_Selected:
+            return config.val.colors.completion.item.selected.match.fg
+        return config.val.colors.completion.match.fg
+
     def _get_textdoc(self, index):
         """Create the QTextDocument of an item.
 
@@ -221,13 +262,14 @@ class CompletionItemDelegate(QStyledItemDelegate):
             view = self.parent()
             assert isinstance(view, completionwidget.CompletionView), view
             pattern = view.pattern
-            columns_to_filter = index.model().columns_to_filter(index)
-            if index.column() in columns_to_filter and pattern:
-                if self._opt.state & QStyle.StateFlag.State_Selected:
-                    color = config.val.colors.completion.item.selected.match.fg
-                else:
-                    color = config.val.colors.completion.match.fg
-                _Highlighter(self._doc, pattern, color)
+            positions = index.model().match_positions(index)
+            if positions is not None:
+                if positions:
+                    _PositionHighlighter(self._doc, positions, self._match_color())
+            else:
+                columns_to_filter = index.model().columns_to_filter(index)
+                if index.column() in columns_to_filter and pattern:
+                    _Highlighter(self._doc, pattern, self._match_color())
             self._doc.setPlainText(self._opt.text)
         else:
             self._doc.setHtml(
