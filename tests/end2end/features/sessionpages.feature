@@ -20,8 +20,18 @@ Feature: Session and container pages
         And I open about:blank in a private window
         And I run :session-list
         And I wait until qute://sessions/ is loaded
-        Then the page should contain the plaintext "Container: pages-b"
-        And the page should contain the plaintext "private, in memory and never saved"
+        Then the page should contain the plaintext "pages-b"
+        And the page should contain the plaintext "never, in memory only"
+
+    Scenario: Clicking a qute://sessions column header sorts by it
+        When I run :session-new sort-b
+        And I run :session-new sort-a
+        And I run :session-list
+        And I wait until qute://sessions/ is loaded
+        And I run :jseval --world main document.querySelector('#sessions th').click(); console.log('ascending: ' + (() => { const names = Array.from(document.querySelectorAll('#sessions > tbody > tr > td.name'), cell => cell.textContent); return names.join() === names.slice().sort().join(); })())
+        And I run :jseval --world main document.querySelector('#sessions th').click(); console.log('descending: ' + (() => { const names = Array.from(document.querySelectorAll('#sessions > tbody > tr > td.name'), cell => cell.textContent); return names.join() === names.slice().sort().reverse().join(); })())
+        Then the javascript message "ascending: true" should be logged
+        And the javascript message "descending: true" should be logged
 
     Scenario: :session-list -t opens the page in a new tab
         When I open data/numbers/1.txt

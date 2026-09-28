@@ -6,12 +6,12 @@ h1 {
     margin-bottom: 10px;
 }
 
-section {
-    margin-bottom: 20px;
-}
-
 th {
     text-align: left;
+}
+
+#sessions > tbody > tr > td {
+    vertical-align: top;
 }
 
 .swatch {
@@ -50,35 +50,35 @@ th {
 </ul>
 </div>
 {% endif %}
-{% for row in saved %}
-<section id="session-{{ row.name }}">
-<h2>{{ row.name }}</h2>
-<p class="container">Container: {{ row.container }} <span class="swatch" style="background-color: {{ row.swatch }}"></span></p>
-<p class="state">{% if row.is_open %}open{% else %}closed{% endif %}, {{ row.counts }}, last saved {{ row.last_saved }}</p>
-{% if row.closed_windows %}
-<p class="history">{{ row.closed_windows|length }} closed window{% if row.closed_windows|length != 1 %}s{% endif %}:</p>
-<table class="closed-windows">
+<table id="sessions" class="sortable">
     <thead>
-    <tr><th>#</th><th>Closed</th><th>Tabs</th><th>First page</th><th>Restore with</th></tr>
+    <tr><th>Session</th><th>Container</th><th>State</th><th>Windows</th><th>Tabs</th><th aria-sort="descending">Last saved</th><th>Closed windows</th></tr>
     </thead>
     <tbody>
-    {% for entry in row.closed_windows %}
-    <tr><td class="index">{{ entry.index }}</td><td class="closed-at">{{ entry.closed_at }}</td><td class="tabs">{{ entry.tabs }}</td><td class="title">{{ entry.title }}</td><td class="mono">:session-restore-window {{ row.name }} {{ entry.index }}</td></tr>
+    {% for row in rows %}
+    <tr id="session-{{ row.name }}">
+        <td class="name">{{ row.name }}</td>
+        <td class="container">{% if row.container is not none %}{{ row.container }} <span class="swatch" style="background-color: {{ row.swatch }}"></span>{% endif %}</td>
+        <td class="state">{{ row.state }}</td>
+        <td class="windows">{{ row.windows }}</td>
+        <td class="tabs">{{ row.tabs }}</td>
+        <td class="last-saved" data-sort="{{ row.last_saved.isoformat() if row.last_saved else '' }}">{% if row.state == 'private' %}never, in memory only{% else %}{{ row.last_saved_text }}{% endif %}</td>
+        <td class="history" data-sort="{{ row.closed_windows|length }}">{% if row.closed_windows %}<details>
+            <summary>{{ row.closed_windows|length }} closed window{% if row.closed_windows|length != 1 %}s{% endif %}</summary>
+            <table class="closed-windows">
+                <thead>
+                <tr><th>#</th><th>Closed</th><th>Tabs</th><th>First page</th><th>Restore with</th></tr>
+                </thead>
+                <tbody>
+                {% for entry in row.closed_windows %}
+                <tr><td class="index">{{ entry.index }}</td><td class="closed-at">{{ entry.closed_at }}</td><td class="tabs">{{ entry.tabs }}</td><td class="title">{{ entry.title }}</td><td class="mono">:session-restore-window {{ row.name }} {{ entry.index }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </details>{% else %}none{% endif %}</td>
+    </tr>
     {% endfor %}
     </tbody>
 </table>
-{% else %}
-<p class="history">No closed windows.</p>
-{% endif %}
-</section>
-{% endfor %}
-{% if private %}
-<h2>Private sessions</h2>
-{% for row in private %}
-<section id="session-{{ row.name }}">
-<h3>{{ row.name }}</h3>
-<p class="state">private, in memory and never saved, {{ row.counts }}</p>
-</section>
-{% endfor %}
-{% endif %}
+<script type="text/javascript" src="qute://javascript/sortable.js"></script>
 {% endblock %}

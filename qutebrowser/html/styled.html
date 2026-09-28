@@ -37,6 +37,19 @@ tbody tr:nth-child(odd) {
     background-color: #f8f8f8;
 }
 
+table.sortable > thead th {
+    cursor: pointer;
+    user-select: none;
+}
+
+table.sortable > thead th[aria-sort="ascending"]::after {
+    content: " \25B2";
+}
+
+table.sortable > thead th[aria-sort="descending"]::after {
+    content: " \25BC";
+}
+
 td {
     max-width: 50%;
     padding: 2px 5px;

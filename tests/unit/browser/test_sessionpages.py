@@ -6,6 +6,7 @@ import datetime
 import logging
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -125,6 +126,18 @@ def element(html, tag, element_id):
     return html[start:html.index(f'</{tag}>', start)]
 
 
+def counts(html, name):
+    row = element(html, 'tr', f'session-{name}')
+    return tuple(re.search(f'<td class="{cls}">([^<]*)</td>', row).group(1)
+                 for cls in ['state', 'windows', 'tabs'])
+
+
+def history(html, name):
+    """Get the source of a session's closed-window list."""
+    start = html.index('<details>', html.index(f'<tr id="session-{name}"'))
+    return html[start:html.index('</details>', start)]
+
+
 def write_session(base_path, name, *, container='default', windows=(),
                   closed_windows=()):
     directory = base_path / name
@@ -214,32 +227,31 @@ def test_sessions_page_counts(manager, windows, base_path):
 
     html = page(sessionpages.qute_sessions)
 
-    assert ('<p class="state">closed, 2 windows, 3 tabs, last saved ' in
-            element(html, 'section', 'session-closed'))
-    assert ('<p class="state">open, 2 windows, 4 tabs, last saved ' in
-            element(html, 'section', 'session-live'))
-    assert ('<p class="state">closed, 0 windows, 0 tabs, last saved ' in
-            element(html, 'section', 'session-default'))
+    assert counts(html, 'closed') == ('closed', '2', '3')
+    assert counts(html, 'live') == ('open', '2', '4')
+    assert counts(html, 'default') == ('closed', '0', '0')
     assert 'class="unreadable"' not in html
 
 
 def test_sessions_page_container_and_order(manager, container_registry):
     container_registry.add('work', 'red')
-    manager.new_session('job', container='work')
-    manager.new_session('alpha')
+    job = manager.new_session('job', container='work')
+    alpha = manager.new_session('alpha')
+    job.last_saved = alpha.last_saved = datetime.datetime(2026, 9, 25)
     private = manager.new_private()
 
     html = page(sessionpages.qute_sessions)
 
-    assert ('<p class="container">Container: work <span class="swatch" '
-            'style="background-color: #ff0000"></span></p>' in
-            element(html, 'section', 'session-job'))
-    assert ('<p class="container">Container: default <span class="swatch" '
-            'style="background-color: #3b4252"></span></p>' in
-            element(html, 'section', 'session-alpha'))
+    assert ('<td class="container">work <span class="swatch" '
+            'style="background-color: #ff0000"></span></td>' in
+            element(html, 'tr', 'session-job'))
+    assert ('<td class="container">default <span class="swatch" '
+            'style="background-color: #3b4252"></span></td>' in
+            element(html, 'tr', 'session-alpha'))
+    # Saved at the same time, so ordered by name; never saved goes last.
     assert (html.index('id="session-alpha"') <
-            html.index('id="session-default"') <
             html.index('id="session-job"') <
+            html.index('id="session-default"') <
             html.index(f'id="session-{private.name}"'))
 
 
@@ -254,29 +266,30 @@ def test_sessions_page_last_saved(manager, base_path):
 
     old_time = datetime.datetime.fromtimestamp(1790000000).strftime(
         '%Y-%m-%d %H:%M:%S')
-    assert (f'last saved {old_time}</p>' in
-            element(html, 'section', 'session-old'))
-    assert ('last saved 2026-09-25 10:30:00</p>' in
-            element(html, 'section', 'session-fresh'))
-    assert 'last saved never</p>' in element(html, 'section', 'session-default')
+    assert (f'>{old_time}</td>' in element(html, 'tr', 'session-old'))
+    assert ('<td class="last-saved" data-sort="2026-09-25T10:30:00">'
+            '2026-09-25 10:30:00</td>' in element(html, 'tr', 'session-fresh'))
+    assert ('<td class="last-saved" data-sort="">never</td>' in
+            element(html, 'tr', 'session-default'))
+    assert (html.index('id="session-fresh"') <
+            html.index('id="session-old"') <
+            html.index('id="session-default"'))
 
 
 def test_sessions_page_private_only_while_open(manager, windows):
     private = manager.new_private()
     open_window(manager, windows, private, 1, tabs=2)
 
-    section = element(page(sessionpages.qute_sessions), 'section',
-                      f'session-{private.name}')
-    assert ('<p class="state">private, in memory and never saved, 1 window, '
-            '2 tabs</p>') in section
-    assert 'swatch' not in section
-    assert 'Container:' not in section
+    html = page(sessionpages.qute_sessions)
+    row = element(html, 'tr', f'session-{private.name}')
+    assert counts(html, private.name) == ('private', '1', '2')
+    assert 'never, in memory only</td>' in row
+    assert '<td class="container"></td>' in row
 
     manager.remove_window(private, 1)
     del windows[1]
     html = page(sessionpages.qute_sessions)
     assert private.name not in html
-    assert 'Private sessions' not in html
 
 
 def test_sessions_page_unreadable(manager, base_path, message_mock, caplog):
@@ -349,8 +362,7 @@ def test_sessions_page_counts_bad_tabs_field(manager, base_path):
 
     html = page(sessionpages.qute_sessions)
 
-    assert ('<p class="state">closed, 4 windows, 2 tabs, last saved ' in
-            element(html, 'section', 'session-malformed'))
+    assert counts(html, 'malformed') == ('closed', '4', '2')
 
 
 def test_last_saved_permission_error(manager):
@@ -363,7 +375,7 @@ def test_last_saved_permission_error(manager):
 
     manager.path_for = lambda _session: Unreadable()
 
-    assert sessionpages._last_saved(session) == 'never'
+    assert sessionpages._last_saved(session) is None
 
 
 def closed_entry(closed_at, *titles):
@@ -390,10 +402,9 @@ def test_sessions_page_closed_windows(manager, base_path):
     ])
     manager.load_all()
 
-    section = element(page(sessionpages.qute_sessions), 'section',
-                      'session-hist')
+    section = history(page(sessionpages.qute_sessions), 'hist')
 
-    assert '<p class="history">4 closed windows:</p>' in section
+    assert '<summary>4 closed windows</summary>' in section
     assert (f'<tr><td class="index">1</td><td class="closed-at">'
             f'{local_time(newest)}</td><td class="tabs">2</td>'
             f'<td class="title">Newest</td><td class="mono">'
@@ -425,8 +436,7 @@ def test_closed_at_none_renders_unknown(manager, base_path):
     ])
     manager.load_all()
 
-    section = element(page(sessionpages.qute_sessions), 'section',
-                      'session-nulled')
+    section = history(page(sessionpages.qute_sessions), 'nulled')
 
     assert '<td class="closed-at">unknown</td>' in section
 
@@ -444,8 +454,7 @@ def test_closed_at_overflow_renders_raw(manager, base_path):
         ])
         manager.load_all()
 
-        section = element(page(sessionpages.qute_sessions), 'section',
-                          'session-ancient')
+        section = history(page(sessionpages.qute_sessions), 'ancient')
 
         assert ('<td class="closed-at">0001-01-01T00:00:00Z</td>'
                 in section)
@@ -458,9 +467,8 @@ def test_closed_at_overflow_renders_raw(manager, base_path):
 
 
 def test_sessions_page_no_closed_windows(manager):
-    section = element(page(sessionpages.qute_sessions), 'section',
-                      'session-default')
-    assert '<p class="history">No closed windows.</p>' in section
+    row = element(page(sessionpages.qute_sessions), 'tr', 'session-default')
+    assert '<td class="history" data-sort="0">none</td>' in row
 
 
 def test_sessions_page_escapes_titles(manager, base_path):
@@ -489,10 +497,9 @@ def test_sessions_page_malformed_closed_window_entries(manager, base_path):
     ])
     manager.load_all()
 
-    section = element(page(sessionpages.qute_sessions), 'section',
-                      'session-weird')
+    section = history(page(sessionpages.qute_sessions), 'weird')
 
-    assert '<p class="history">4 closed windows:</p>' in section
+    assert '<summary>4 closed windows</summary>' in section
     assert section.count('<td class="tabs">0</td>') == 4
 
 
@@ -524,8 +531,7 @@ def test_sessions_page_closed_window_malformed_history(manager, base_path,
     ])
     manager.load_all()
 
-    section = element(page(sessionpages.qute_sessions), 'section',
-                      'session-badtab')
+    section = history(page(sessionpages.qute_sessions), 'badtab')
 
     assert '<td class="title"></td>' in section
 
