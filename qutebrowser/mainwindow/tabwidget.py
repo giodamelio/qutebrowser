@@ -409,6 +409,8 @@ class TabBar(QTabBar):
     """
 
     new_tab_requested = pyqtSignal()
+    # After the mouse button is released on the tab bar, e.g. after a drag.
+    drag_finished = pyqtSignal()
 
     def __init__(self, win_id, parent=None):
         super().__init__(parent)
@@ -556,8 +558,11 @@ class TabBar(QTabBar):
 
     def mouseReleaseEvent(self, e):
         """Override mouseReleaseEvent to know when drags stop."""
+        was_dragging = self.drag_in_progress
         self.drag_in_progress = False
         super().mouseReleaseEvent(e)
+        if was_dragging:
+            self.drag_finished.emit()
 
     def mousePressEvent(self, e):
         """Override mousePressEvent to close tabs if configured.

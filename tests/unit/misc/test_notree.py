@@ -821,3 +821,159 @@ def _check_drag(before, to, after):
     active.drag(to)
 
     assert tree_to_str(tree_root, active) == after
+
+
+class DropTestArgs(NamedTuple):
+    description: str
+    before: str
+    above: str | None
+    below: str | None
+    after: str
+
+
+@pytest.mark.parametrize(
+    DropTestArgs._fields,
+    [
+        DropTestArgs(
+            description="Drop a tree further down, after a tab",
+            before="""
+                one (active)
+                  two
+                three
+                four
+                """,
+            above="three",
+            below="four",
+            after="""
+                three
+                one (active)
+                  two
+                four
+                """,
+        ),
+        DropTestArgs(
+            description="Drop a tree under a tab with children",
+            before="""
+                one (active)
+                  two
+                three
+                  four
+                """,
+            above="three",
+            below="four",
+            after="""
+                three
+                  one (active)
+                    two
+                  four
+                """,
+        ),
+        DropTestArgs(
+            description="Drop a tree at the end",
+            before="""
+                one (active)
+                  two
+                three
+                """,
+            above="three",
+            below=None,
+            after="""
+                three
+                one (active)
+                  two
+                """,
+        ),
+        DropTestArgs(
+            description="Drop a tree further up, into a group",
+            before="""
+                one
+                  two
+                  three
+                four (active)
+                  five
+                """,
+            above="two",
+            below="three",
+            after="""
+                one
+                  two
+                  four (active)
+                    five
+                  three
+                """,
+        ),
+        DropTestArgs(
+            description="Drop a tree at the top",
+            before="""
+                one
+                two (active)
+                  three
+                """,
+            above=None,
+            below="one",
+            after="""
+                two (active)
+                  three
+                one
+                """,
+        ),
+        DropTestArgs(
+            description="Drop a tree among its own children",
+            before="""
+                one (active)
+                  two
+                  three
+                four
+                """,
+            above="two",
+            below="three",
+            after="""
+                one (active)
+                  two
+                  three
+                four
+                """,
+        ),
+        DropTestArgs(
+            description="Drop a tree where it was",
+            before="""
+                one
+                two (active)
+                  three
+                four
+                """,
+            above="one",
+            below="two",
+            after="""
+                one
+                two (active)
+                  three
+                four
+                """,
+        ),
+        DropTestArgs(
+            description="Drop a collapsed tree past a tab",
+            before="""
+                one (active) (collapsed)
+                  two
+                three
+                """,
+            above="three",
+            below=None,
+            after="""
+                three
+                one (active) (collapsed)
+                  two
+                """,
+        ),
+    ],
+)
+def test_drop_recursive(description, before, above, below, after):
+    """Dropping a tab dragged with Shift, with its children."""
+    before, after = textwrap.dedent(before), textwrap.dedent(after).strip()
+    tree_root, active = str_to_tree(before)
+    by_value = {node.value: node for node in tree_root.traverse()}
+
+    active.drop_recursive(by_value.get(above), by_value.get(below))
+
+    assert tree_to_str(tree_root, active) == after
