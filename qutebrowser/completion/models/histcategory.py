@@ -2,126 +2,111 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""A completion category that queries the SQL history store."""
+"""A completion category listing web history from an in-memory index."""
 
+import time
 
-from qutebrowser.qt.sql import QSqlQueryModel
-from qutebrowser.qt.widgets import QWidget
+from qutebrowser.qt.core import QAbstractTableModel, QModelIndex, QObject, Qt
 
-from qutebrowser.misc import sql
-from qutebrowser.utils import debug, message, log
-from qutebrowser.config import config
+from qutebrowser.completion import historyindex
 from qutebrowser.completion.models import util, BaseCategory
+from qutebrowser.config import config
 
 
-class HistoryCategory(QSqlQueryModel, BaseCategory):
+# Paging granularity for fetchMore, matching QSqlQueryModel's default so an
+# empty pattern over a huge history stays cheap to display.
+_PAGE_SIZE = 256
 
-    """A completion category that queries the SQL history store."""
+_URL_COLUMN = 0
+_TITLE_COLUMN = 1
+_TIME_COLUMN = 2
 
-    def __init__(self, *, database: sql.Database,
-                 delete_func: util.DeleteFuncType | None = None,
-                 parent: QWidget | None = None) -> None:
+
+class HistoryCategory(QAbstractTableModel, BaseCategory):
+
+    """A completion category backed by the in-memory HistoryIndex."""
+
+    def __init__(self, *, delete_func: util.DeleteFuncType | None = None,
+                parent: QObject | None = None) -> None:
         """Create a new History completion category."""
         super().__init__(parent=parent)
-        self._database = database
         self.name = "History"
-        self._query: sql.Query | None = None
-
         # advertise that this model filters by URL and title
-        self.columns_to_filter = [0, 1]
+        self.columns_to_filter = [_URL_COLUMN, _TITLE_COLUMN]
         self.delete_func = delete_func
-        self._empty_prefix: str | None = None
+        self._pattern = ''
+        self._slots: list[int] = []
+        # Revealed rows as (slot, url, title, atime). Copied when revealed
+        # because the index drops or replaces entries whenever a page loads,
+        # including while this completion is open.
+        self._rows: list[tuple[int, str, str, int]] = []
+        self._cursor = 0
 
-    def _atime_expr(self):
-        """If max_items is set, return an expression to limit the query."""
-        max_items = config.val.completion.web_history.max_items
-        # HistoryCategory should not be added to the completion in that case.
-        assert max_items != 0
+    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else 3
 
-        if max_items < 0:
-            return ''
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self._rows)
 
-        min_atime = self._database.query(' '.join([
-            'SELECT min(last_atime) FROM',
-            '(SELECT last_atime FROM CompletionHistory',
-            'ORDER BY last_atime DESC LIMIT :limit)',
-        ])).run(limit=max_items).value()
+    def canFetchMore(self, parent: QModelIndex = QModelIndex()) -> bool:
+        return not parent.isValid() and self._cursor < len(self._slots)
 
-        if not min_atime:
-            # if there are no history items, min_atime may be '' (issue #2849)
-            return ''
+    def fetchMore(self, parent: QModelIndex = QModelIndex()) -> None:
+        """Reveal up to one more page of already-ranked results."""
+        if parent.isValid():
+            return
+        page = self._next_page()
+        if not page:
+            return
+        first = len(self._rows)
+        self.beginInsertRows(QModelIndex(), first, first + len(page) - 1)
+        self._rows.extend(page)
+        self.endInsertRows()
 
-        return "AND last_atime >= {}".format(min_atime)
+    def _next_page(self) -> list[tuple[int, str, str, int]]:
+        """Snapshot the next page of ranked slots still in the index."""
+        index = historyindex.get()
+        page: list[tuple[int, str, str, int]] = []
+        while self._cursor < len(self._slots) and len(page) < _PAGE_SIZE:
+            slot = self._slots[self._cursor]
+            self._cursor += 1
+            entry = index.entry(slot)
+            if entry is not None:
+                page.append((slot, *entry))
+        return page
 
-    def set_pattern(self, pattern):
-        """Set the pattern used to filter results.
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> str | None:
+        """Implement abstract method in QAbstractTableModel."""
+        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        _slot, url, title, atime = self._rows[index.row()]
+        if index.column() == _URL_COLUMN:
+            return url
+        if index.column() == _TITLE_COLUMN:
+            return title
+        assert index.column() == _TIME_COLUMN, index.column()
+        fmt = config.val.completion.timestamp_format
+        return time.strftime(fmt, time.localtime(atime)) if fmt else ''
 
-        Args:
-            pattern: string pattern to filter by.
+    def set_pattern(self, pattern: str) -> None:
+        """Set the pattern used to filter and rank results."""
+        self._pattern = pattern
+        self.beginResetModel()
+        self._slots = historyindex.get().match(pattern)
+        self._cursor = 0
+        self._rows = self._next_page()
+        self.endResetModel()
+
+    def removeRows(self, row: int, _count: int, _parent: QModelIndex = QModelIndex()) -> bool:
+        """Override QAbstractItemModel::removeRows to re-run the pattern.
+
+        The deletion itself goes through delete_func -> web_history.delete_url,
+        which removes the entry from HistoryIndex via completion_removed.
         """
-        raw_pattern = pattern
-        if (self._empty_prefix is not None and raw_pattern.startswith(
-                self._empty_prefix)):
-            log.sql.debug('Skipping query on {} due to '
-                          'prefix {} returning nothing.'
-                          .format(raw_pattern, self._empty_prefix))
-            return
-        self._empty_prefix = None
-
-        # escape to treat a user input % or _ as a literal, not a wildcard
-        pattern = pattern.replace('%', '\\%')
-        pattern = pattern.replace('_', '\\_')
-        words = ['%{}%'.format(w) for w in pattern.split(' ')]
-
-        # build a where clause to match all of the words in any order
-        # given the search term "a b", the WHERE clause would be:
-        # (url LIKE '%a%' OR title LIKE '%a%') AND
-        # (url LIKE '%b%' OR title LIKE '%b%')
-        where_clause = ' AND '.join(
-            "(url LIKE :{val} escape '\\' OR title LIKE :{val} escape '\\')"
-            .format(val=i) for i in range(len(words)))
-
-        # replace ' in timestamp-format to avoid breaking the query
-        timestamp_format = config.val.completion.timestamp_format or ''
-        timefmt = ("strftime('{}', last_atime, 'unixepoch', 'localtime')"
-                   .format(timestamp_format.replace("'", "`")))
-
-        try:
-            if (not self._query or
-                    len(words) != len(self._query.bound_values())):
-                # if the number of words changed, we need to generate a new
-                # query otherwise, we can reuse the prepared query for
-                # performance
-                self._query = self._database.query(' '.join([
-                    "SELECT url, title, {}".format(timefmt),
-                    "FROM CompletionHistory",
-                    # the incoming pattern will have literal % and _ escaped we
-                    # need to tell SQL to treat '\' as an escape character
-                    'WHERE ({})'.format(where_clause),
-                    self._atime_expr(),
-                    "ORDER BY last_atime DESC",
-                ]), forward_only=False)
-
-            with debug.log_time('sql', 'Running completion query'):
-                self._query.run(**{
-                    str(i): w for i, w in enumerate(words)})
-        except sql.KnownError as e:
-            # Sometimes, the query we built up was invalid, for example,
-            # due to a large amount of words.
-            # Also catches failures in the DB we can't solve.
-            message.error("Error with SQL query: {}".format(e.text()))
-            return
-        self.setQuery(self._query.query)
-        if not self.rowCount() and not self.canFetchMore():
-            self._empty_prefix = raw_pattern
-
-    def removeRows(self, row, _count, _parent=None):
-        """Override QAbstractItemModel::removeRows to re-run SQL query."""
-        # re-run query to reload updated table
-        assert self._query is not None
-        with debug.log_time('sql', 'Re-running completion query post-delete'):
-            self._query.run()
-        self.setQuery(self._query.query)
-        while self.rowCount() < row:
+        self.set_pattern(self._pattern)
+        while self.canFetchMore() and self.rowCount() < row:
             self.fetchMore()
         return True
+
+    def match_positions(self, row: int, column: int) -> "list[int] | None":
+        return historyindex.get().positions(self._rows[row][0], column)

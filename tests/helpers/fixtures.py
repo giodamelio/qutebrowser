@@ -34,6 +34,7 @@ from qutebrowser.config import (config, configdata, configtypes, configexc,
 from qutebrowser.api import config as configapi
 from qutebrowser.utils import objreg, standarddir, utils, usertypes, version
 from qutebrowser.browser import greasemonkey, history, qutescheme
+from qutebrowser.completion import historyindex
 from qutebrowser.browser.webkit import cookies, cache
 from qutebrowser.misc import containers
 from qutebrowser.misc import savemanager, sql, objects
@@ -708,7 +709,10 @@ def web_history(fake_save_manager, tmpdir, database, config_stub, stubs,
     config_stub.val.completion.web_history.max_items = -1
     web_history = history.WebHistory(database, stubs.FakeHistoryProgress())
     monkeypatch.setattr(history, 'web_history', web_history)
-    return web_history
+    yield web_history
+    # Drop any HistoryIndex connected to this web_history so the next test's
+    # historyindex.get() builds a fresh one against its own web_history.
+    historyindex.instance = None
 
 
 @pytest.fixture
