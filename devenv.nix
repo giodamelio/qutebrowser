@@ -1,6 +1,26 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
+  # Not in nixpkgs. Built from the prebuilt wheel, which links only
+  # libgcc_s and glibc, so no Rust toolchain is needed. Shared by the
+  # devenv's Python and the browser build, which use different Pythons.
+  mkFrizbee = ps: ps.buildPythonPackage rec {
+    pname = "frizbee";
+    version = "0.13.0";
+    format = "wheel";
+    src = pkgs.fetchPypi {
+      inherit pname version format;
+      dist = "cp310";
+      python = "cp310";
+      abi = "abi3";
+      platform = "manylinux_2_17_x86_64.manylinux2014_x86_64";
+      hash = "sha256-Ez4ynvpXkSQ0xN4Pk1FY6mm2wCohV9XXcrP4u0XOrXY=";
+    };
+    nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+    buildInputs = [ pkgs.stdenv.cc.cc.lib ];
+    pythonImportsCheck = [ "frizbee" ];
+  };
+
   # nixpkgs ships pytest-bdd 7.1.2 and no gherkin-official, but the repo pins
   # pytest-bdd 8.1.0 (misc/requirements/requirements-tests.txt), and 7.1.2
   # fails collection under pytest 9 with filterwarnings = error.
@@ -35,24 +55,7 @@ let
         doCheck = false;
       });
 
-      # Not in nixpkgs. Built from the prebuilt wheel, which links only
-      # libgcc_s and glibc, so the devenv needs no Rust toolchain.
-      frizbee = pyfinal.buildPythonPackage rec {
-        pname = "frizbee";
-        version = "0.13.0";
-        format = "wheel";
-        src = pkgs.fetchPypi {
-          inherit pname version format;
-          dist = "cp310";
-          python = "cp310";
-          abi = "abi3";
-          platform = "manylinux_2_17_x86_64.manylinux2014_x86_64";
-          hash = "sha256-Ez4ynvpXkSQ0xN4Pk1FY6mm2wCohV9XXcrP4u0XOrXY=";
-        };
-        nativeBuildInputs = [ pkgs.autoPatchelfHook ];
-        buildInputs = [ pkgs.stdenv.cc.cc.lib ];
-        pythonImportsCheck = [ "frizbee" ];
-      };
+      frizbee = mkFrizbee pyfinal;
     };
   };
 
@@ -130,7 +133,9 @@ in
 
   # The same override as giodamelio/giopkgs' qutebrowser package, but built
   # from this checkout. Build it with `devenv build outputs.qutebrowser`.
-  outputs.qutebrowser = pkgs.qutebrowser.overrideAttrs (oldAttrs: {
+  outputs.qutebrowser = (pkgs.qutebrowser.overridePythonAttrs (oldAttrs: {
+    dependencies = oldAttrs.dependencies ++ [ (mkFrizbee pkgs.python3.pkgs) ];
+  })).overrideAttrs (oldAttrs: {
     version = "${lib.head (builtins.match ''.*__version__ = "([^"]+)".*''
       (builtins.readFile ./qutebrowser/__init__.py))}-dev";
 
