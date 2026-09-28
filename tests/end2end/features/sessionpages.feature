@@ -14,6 +14,16 @@ Feature: Session and container pages
         Then the page should contain the plaintext "pages-a"
         And the page should contain the plaintext "pages-session (open)"
 
+    Scenario: Clicking a qute://containers column header sorts by it
+        When I run :container-new sort-b
+        And I run :container-new sort-a
+        And I run :container-list
+        And I wait until qute://containers/ is loaded
+        And I run :jseval --world main document.querySelector('#containers th').click(); console.log('ascending: ' + (() => { const names = Array.from(document.querySelectorAll('#containers > tbody > tr > td.name'), cell => cell.textContent.trim()); return names.join() === names.slice().sort().join(); })())
+        And I run :jseval --world main document.querySelector('#containers th').click(); console.log('descending: ' + (() => { const names = Array.from(document.querySelectorAll('#containers > tbody > tr > td.name'), cell => cell.textContent.trim()); return names.join() === names.slice().sort().reverse().join(); })())
+        Then the javascript message "ascending: true" should be logged
+        And the javascript message "descending: true" should be logged
+
     Scenario: :session-list shows a container session and a private session
         When I run :container-new pages-b
         And I run :session-new pages-list --container pages-b

@@ -26,7 +26,7 @@ th {
 {% block content %}
 <h1>Containers</h1>
 <p class="note">This page is read-only. Change containers with <span class="mono">:container-new</span>, <span class="mono">:container-rename</span> and <span class="mono">:container-delete</span>, or in config.py.</p>
-<table>
+<table id="containers" class="sortable">
     <thead>
     <tr><th>Container</th><th>Source</th><th>Sessions</th><th>Profile</th></tr>
     </thead>
@@ -41,4 +41,5 @@ th {
     {% endfor %}
     </tbody>
 </table>
+<script type="text/javascript" src="qute://javascript/sortable.js"></script>
 {% endblock %}
