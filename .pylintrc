@@ -1,6 +1,6 @@
 [MASTER]
 ignore=resources.py
-extension-pkg-whitelist=PyQt5,PyQt6,sip
+extension-pkg-whitelist=PyQt5,PyQt6,sip,frizbee
 load-plugins=qute_pylint.config,
              pylint.extensions.docstyle,
              pylint.extensions.overlapping_exceptions,
