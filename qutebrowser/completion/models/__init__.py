@@ -24,3 +24,6 @@ class BaseCategory(QAbstractItemModel):
     name: str
     columns_to_filter: Sequence[int]
     delete_func: "DeleteFuncType | None" = None
+
+    def match_positions(self, _row: int, _column: int) -> "list[int] | None":
+        """Positions of the characters the pattern matched, or None if unknown."""
