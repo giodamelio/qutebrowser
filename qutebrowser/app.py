@@ -531,6 +531,9 @@ def _init_modules(*, args):
 
     log.init.debug("Initializing Greasemonkey...")
     greasemonkey.init()
+    if objects.backend == usertypes.Backend.QtWebEngine:
+        from qutebrowser.browser.webengine import webenginesettings
+        webenginesettings.init_greasemonkey()
 
     log.init.debug("Misc initialization...")
     macros.init()

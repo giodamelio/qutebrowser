@@ -255,7 +255,7 @@ def profile_scripts(profile_registry, config_stub):
     config_stub.changed.disconnect(webenginesettings._update_scripts)
     scripts = profile.scripts()
     for script in scripts.toList():
-        if script.name().startswith('_qute_'):
+        if script.name().startswith(('_qute_', 'GM-')):
             scripts.remove(script)
 
 

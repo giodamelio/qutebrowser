@@ -18,7 +18,7 @@ from qutebrowser.qt.network import QAuthenticator
 from qutebrowser.qt.webenginecore import QWebEnginePage, QWebEngineScript, QWebEngineHistory
 
 from qutebrowser.config import config
-from qutebrowser.browser import browsertab, eventfilter, shared, webelem, greasemonkey
+from qutebrowser.browser import browsertab, eventfilter, shared, webelem
 from qutebrowser.browser.webengine import (webview, webengineelem, tabhistory,
                                            webenginesettings, certificateerror,
                                            webengineinspector)
@@ -27,15 +27,6 @@ from qutebrowser.utils import (usertypes, qtutils, log, javascript, utils,
                                message, jinja, debug, version, urlutils)
 from qutebrowser.qt import sip, machinery
 from qutebrowser.misc import objects, miscwidgets
-
-
-# Mapping worlds from usertypes.JsWorld to QWebEngineScript world IDs.
-_JS_WORLD_MAP = {
-    usertypes.JsWorld.main: QWebEngineScript.ScriptWorldId.MainWorld,
-    usertypes.JsWorld.application: QWebEngineScript.ScriptWorldId.ApplicationWorld,
-    usertypes.JsWorld.user: QWebEngineScript.ScriptWorldId.UserWorld,
-    usertypes.JsWorld.jseval: QWebEngineScript.ScriptWorldId.UserWorld + 1,
-}
 
 
 class WebEngineAction(browsertab.AbstractAction):
@@ -1019,13 +1010,9 @@ class _WebEnginePermissions(QObject):
 
 class _WebEngineScripts(QObject):
 
-    _widget: webview.WebEngineView
-
     def __init__(self, tab, parent=None):
         super().__init__(parent)
         self._tab = tab
-        self._widget = cast(webview.WebEngineView, None)
-        self._greasemonkey = greasemonkey.gm_manager
 
     def connect_signals(self):
         """Connect signals to our private slots."""
@@ -1046,91 +1033,6 @@ class _WebEngineScripts(QObject):
         css = shared.get_user_stylesheet(searching=searching)
         code = javascript.assemble('stylesheet', 'set_css', css)
         self._tab.run_js_async(code)
-
-    def init(self):
-        """Initialize Greasemonkey scripts."""
-        self._greasemonkey.scripts_reloaded.connect(
-            self._inject_all_greasemonkey_scripts)
-        self._inject_all_greasemonkey_scripts()
-
-    @pyqtSlot()
-    def _inject_all_greasemonkey_scripts(self):
-        scripts = self._greasemonkey.all_scripts()
-        self._inject_greasemonkey_scripts(scripts)
-
-    def _remove_all_greasemonkey_scripts(self):
-        page_scripts = self._widget.page().scripts()
-        for script in page_scripts.toList():
-            if script.name().startswith("GM-"):
-                log.greasemonkey.debug('Removing script: {}'
-                                       .format(script.name()))
-                removed = page_scripts.remove(script)
-                assert removed, script.name()
-
-    def _inject_greasemonkey_scripts(self, scripts):
-        """Register user JavaScript files with the current tab.
-
-        Args:
-            scripts: A list of GreasemonkeyScripts.
-        """
-        if sip.isdeleted(self._widget):
-            return
-
-        # Since we are inserting scripts into a per-tab collection,
-        # rather than just injecting scripts on page load, we need to
-        # make sure we replace existing scripts, not just add new ones.
-        # While, taking care not to remove any other scripts that might
-        # have been added elsewhere, like the one for stylesheets.
-        page_scripts = self._widget.page().scripts()
-        self._remove_all_greasemonkey_scripts()
-
-        seen_names = set()
-        for script in scripts:
-            while script.full_name() in seen_names:
-                script.dedup_suffix += 1
-            seen_names.add(script.full_name())
-
-            new_script = QWebEngineScript()
-
-            try:
-                world = int(script.jsworld)
-                if not 0 <= world <= qtutils.MAX_WORLD_ID:
-                    log.greasemonkey.error(
-                        f"script {script.name} has invalid value for '@qute-js-world'"
-                        f": {script.jsworld}, should be between 0 and "
-                        f"{qtutils.MAX_WORLD_ID}")
-                    continue
-            except ValueError:
-                try:
-                    world = _JS_WORLD_MAP[usertypes.JsWorld[script.jsworld.lower()]]
-                except KeyError:
-                    log.greasemonkey.error(
-                        f"script {script.name} has invalid value for '@qute-js-world'"
-                        f": {script.jsworld}")
-                    continue
-            new_script.setWorldId(world)
-
-            # Corresponds to "@run-at document-end" which is the default according to
-            # https://wiki.greasespot.net/Metadata_Block#.40run-at - however,
-            # QtWebEngine uses QWebEngineScript.InjectionPoint.Deferred (@run-at document-idle) as
-            # default.
-            #
-            # NOTE that this needs to be done before setSourceCode, so that
-            # QtWebEngine's parsing of GreaseMonkey tags will override it if there is a
-            # @run-at comment.
-            new_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
-
-            new_script.setSourceCode(script.code())
-            new_script.setName(script.full_name())
-            new_script.setRunsOnSubFrames(script.runs_on_sub_frames)
-
-            if script.needs_document_end_workaround():
-                log.greasemonkey.debug(
-                    f"Forcing @run-at document-end for {script.name}")
-                new_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
-
-            log.greasemonkey.debug(f'adding script: {new_script.name()}')
-            page_scripts.insert(new_script)
 
 
 class WebEngineTabPrivate(browsertab.AbstractTabPrivate):
@@ -1207,7 +1109,6 @@ class WebEngineTab(browsertab.AbstractTab):
         self.backend = usertypes.Backend.QtWebEngine
         self._child_event_filter = None
         self._saved_zoom = None
-        self._scripts.init()
         # WORKAROUND for https://bugreports.qt.io/browse/QTBUG-65223
         self._needs_qtbug65223_workaround = (
             version.qtwebengine_versions().webengine < utils.VersionNumber(5, 15, 5))
@@ -1216,7 +1117,6 @@ class WebEngineTab(browsertab.AbstractTab):
         # pylint: disable=protected-access
         super()._set_widget(widget)
         self._permissions._widget = widget
-        self._scripts._widget = widget
 
     def _install_event_filter(self):
         fp = self._widget.focusProxy()
@@ -1281,7 +1181,7 @@ class WebEngineTab(browsertab.AbstractTab):
                     "World ID should be between 0 and {}"
                     .format(qtutils.MAX_WORLD_ID))
         else:
-            world_id = _JS_WORLD_MAP[world]
+            world_id = webenginesettings.JS_WORLD_MAP[world]
 
         if callback is None:
             self._widget.page().runJavaScript(code, world_id)

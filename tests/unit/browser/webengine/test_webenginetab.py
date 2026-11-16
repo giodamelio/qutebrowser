@@ -21,6 +21,7 @@ from qutebrowser.misc import sessionfile
 from qutebrowser.utils import usertypes
 webenginetab = pytest.importorskip(
     "qutebrowser.browser.webengine.webenginetab")
+from qutebrowser.browser.webengine import webenginesettings
 
 pytestmark = pytest.mark.usefixtures('greasemonkey_manager')
 
@@ -29,12 +30,12 @@ class ScriptsHelper:
 
     """Helper to get the processed (usually Greasemonkey) scripts."""
 
-    def __init__(self, tab):
-        self._tab = tab
+    def __init__(self, scripts):
+        self._scripts = scripts
 
     def get_scripts(self, prefix='GM-'):
         return [
-            s for s in self._tab._widget.page().scripts().toList()
+            s for s in self._scripts.toList()
             if s.name().startswith(prefix)
         ]
 
@@ -44,21 +45,22 @@ class ScriptsHelper:
         return scripts[0]
 
     def inject(self, scripts):
-        self._tab._scripts._inject_greasemonkey_scripts(scripts)
+        webenginesettings._install_greasemonkey_scripts(self._scripts, scripts)
         return self.get_scripts()
+
+
+def test_no_page_scripts(webengine_tab):
+    """All scripts live on the profile, not the page."""
+    assert not webengine_tab._widget.page().scripts().toList()
 
 
 class TestWebengineScripts:
 
-    """Test the _WebEngineScripts utility class."""
+    """Test installing Greasemonkey scripts on a profile."""
 
     @pytest.fixture
-    def scripts_helper(self, webengine_tab):
-        return ScriptsHelper(webengine_tab)
-
-    def test_no_qute_page_scripts(self, scripts_helper):
-        """qutebrowser's own scripts live on the profile, not the page."""
-        assert not scripts_helper.get_scripts(prefix='_qute_')
+    def scripts_helper(self, webengine_tab, profile_scripts):
+        return ScriptsHelper(profile_scripts)
 
     def test_greasemonkey_undefined_world(self, scripts_helper, caplog):
         """Make sure scripts with non-existent worlds are rejected."""

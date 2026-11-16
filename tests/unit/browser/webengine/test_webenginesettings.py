@@ -11,6 +11,7 @@ QtWebEngineCore = pytest.importorskip('qutebrowser.qt.webenginecore')
 QWebEngineProfile = QtWebEngineCore.QWebEngineProfile
 QWebEngineSettings = QtWebEngineCore.QWebEngineSettings
 
+from qutebrowser.browser import greasemonkey
 from qutebrowser.browser.webengine import webenginesettings, profiles
 from qutebrowser.utils import usertypes, qtutils
 from qutebrowser.config import configdata
@@ -209,6 +210,27 @@ def test_update_scripts_skips_quirk(config_stub, default_profile):
     names = _script_names(default_profile)
     assert '_qute_quirk_discord' not in names
     assert '_qute_quirk_whatsapp_web' in names
+
+
+@pytest.fixture
+def gm_script(monkeypatch, greasemonkey_manager):
+    script = greasemonkey.GreasemonkeyScript([('name', 'test')], 'void 0;')
+    monkeypatch.setattr(greasemonkey.gm_manager, 'all_scripts', lambda: [script])
+    return script
+
+
+def test_install_scripts_greasemonkey(config_stub, gm_script, default_profile):
+    webenginesettings._install_scripts(default_profile)
+    assert gm_script.full_name() in _script_names(default_profile)
+
+
+def test_init_greasemonkey(config_stub, gm_script, default_profile,
+                           private_profile):
+    webenginesettings.init_greasemonkey()
+    greasemonkey.gm_manager.scripts_reloaded.emit()
+
+    for profile in [default_profile, private_profile]:
+        assert _script_names(profile).count(gm_script.full_name()) == 1
 
 
 def test_container_profile_paths(container_registry, data_tmpdir,
