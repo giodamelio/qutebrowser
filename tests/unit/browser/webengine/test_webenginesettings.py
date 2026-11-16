@@ -172,6 +172,45 @@ def test_profile_setter_settings(private_profile, configdata_init):
         assert setting in set(configdata.DATA)
 
 
+def _script_names(profile):
+    return sorted(script.name() for script in profile.scripts().toList())
+
+
+def test_install_scripts(config_stub, default_profile):
+    webenginesettings._install_scripts(default_profile)
+    names = _script_names(default_profile)
+    assert '_qute_js' in names
+    assert '_qute_stylesheet' in names
+    assert '_qute_quirk_discord' in names
+
+
+def test_update_scripts_replaces_stylesheet(config_stub, tmp_path,
+                                            default_profile, private_profile):
+    for profile in [default_profile, private_profile]:
+        webenginesettings._install_scripts(profile)
+    css_file = tmp_path / 'user.css'
+    css_file.write_text('body { color: rebeccapurple; }', encoding='utf-8')
+    config_stub.val.content.user_stylesheets = str(css_file)
+
+    webenginesettings._update_scripts('content.user_stylesheets')
+
+    for profile in [default_profile, private_profile]:
+        stylesheets = profile.scripts().find('_qute_stylesheet')
+        assert len(stylesheets) == 1
+        assert 'rebeccapurple' in stylesheets[0].sourceCode()
+
+
+def test_update_scripts_skips_quirk(config_stub, default_profile):
+    webenginesettings._install_scripts(default_profile)
+    config_stub.val.content.site_specific_quirks.skip = ['js-discord']
+
+    webenginesettings._update_scripts('content.site_specific_quirks.skip')
+
+    names = _script_names(default_profile)
+    assert '_qute_quirk_discord' not in names
+    assert '_qute_quirk_whatsapp_web' in names
+
+
 def test_container_profile_paths(container_registry, data_tmpdir,
                                  cache_tmpdir):
     container_registry.add('work', '#111111')

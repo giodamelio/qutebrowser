@@ -19,6 +19,11 @@ from qutebrowser.utils import usertypes
 from qutebrowser.config import configdata
 
 
+@pytest.fixture
+def webenginesettings():
+    return pytest.importorskip('qutebrowser.browser.webengine.webenginesettings')
+
+
 @pytest.mark.parametrize('base_url, source, expected', [
     pytest.param(
         QUrl(),
@@ -45,23 +50,24 @@ from qutebrowser.config import configdata
         id='array-at',
     ),
 ])
-def test_js_quirks(config_stub, js_tester_webengine, base_url, source, expected):
+def test_js_quirks(config_stub, js_tester_webengine, profile_scripts,
+                   webenginesettings, base_url, source, expected):
     config_stub.val.content.site_specific_quirks.skip = []
-    js_tester_webengine.tab._scripts._inject_site_specific_quirks()
+    webenginesettings._install_site_specific_quirks(profile_scripts)
     js_tester_webengine.load('base.html', base_url=base_url)
     js_tester_webengine.run(source, expected, world=usertypes.JsWorld.main)
 
 
-def test_js_quirks_match_files(webengine_tab):
+def test_js_quirks_match_files(webengine_tab, webenginesettings):
     quirks_path = pathlib.Path(qutebrowser.__file__).parent / "javascript" / "quirks"
     suffix = ".user.js"
     quirks_files = {p.name.removesuffix(suffix) for p in quirks_path.glob(f"*{suffix}")}
-    quirks_code = {q.filename for q in webengine_tab._scripts._get_quirks()}
+    quirks_code = {q.filename for q in webenginesettings._get_quirks()}
     assert quirks_code == quirks_files
 
 
-def test_js_quirks_match_settings(webengine_tab, configdata_init):
-    quirks_code = {q.name for q in webengine_tab._scripts._get_quirks()}
+def test_js_quirks_match_settings(webengine_tab, webenginesettings, configdata_init):
+    quirks_code = {q.name for q in webenginesettings._get_quirks()}
 
     opt = configdata.DATA["content.site_specific_quirks.skip"]
     valid_values = opt.typ.get_valid_values()

@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>A link to another site</title>
+        <script>
+            function pointToOtherSite() {
+                let link = document.getElementById("link");
+                link.href = link.href.replace("localhost", "127.0.0.1");
+            }
+        </script>
+    </head>
+    <body onload="pointToOtherSite()">
+        <a href="/data/hints/html/simple.html" id="link">Follow me!</a>
+    </body>
+</html>

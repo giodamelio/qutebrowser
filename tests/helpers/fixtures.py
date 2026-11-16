@@ -237,9 +237,32 @@ def webkit_tab(web_tab_setup, qtbot, cookiejar_and_cache, mode_manager,
 
 
 @pytest.fixture
+def profile_scripts(profile_registry, config_stub):
+    """Install qutebrowser's scripts on the test profile, like _init_profile does.
+
+    The test profile is Qt's default profile, which outlives the test, so the
+    scripts are removed again afterwards.
+    """
+    webenginesettings = pytest.importorskip(
+        'qutebrowser.browser.webengine.webenginesettings')
+    profiles = pytest.importorskip('qutebrowser.browser.webengine.profiles')
+    profile = profile_registry.get(profiles.DEFAULT_KEY)
+    webenginesettings._install_scripts(profile)
+    config_stub.changed.connect(webenginesettings._update_scripts)
+
+    yield profile.scripts()
+
+    config_stub.changed.disconnect(webenginesettings._update_scripts)
+    scripts = profile.scripts()
+    for script in scripts.toList():
+        if script.name().startswith('_qute_'):
+            scripts.remove(script)
+
+
+@pytest.fixture
 def webengine_tab(web_tab_setup, qtbot, redirect_webengine_data, profile_registry,
-                  tabbed_browser_stubs, mode_manager, widget_container,
-                  monkeypatch):
+                  profile_scripts, tabbed_browser_stubs, mode_manager,
+                  widget_container, monkeypatch):
     monkeypatch.setattr(objects, 'backend', usertypes.Backend.QtWebEngine)
 
     tabwidget = tabbed_browser_stubs[0].widget

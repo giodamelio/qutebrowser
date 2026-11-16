@@ -55,6 +55,15 @@ Feature: Using hints
         And I hint with args "links" and follow a
         Then data/hello.txt should be loaded
 
+    # https://github.com/qutebrowser/qutebrowser/issues/8925
+    @qtwebkit_skip
+    Scenario: Hinting after following a link to another site
+        When I open data/hints/link_cross_site.html
+        And I hint with args "links current" and follow a
+        And I wait until http://127.0.0.1:(port)/data/hints/html/simple.html is loaded
+        And I hint with args "links current" and follow a
+        Then http://127.0.0.1:(port)/data/hello.txt should be loaded
+
     Scenario: Following a hint to link with sub-element and force to open in current tab.
         When I open data/hints/link_span.html
         And I hint with args "links current" and follow a

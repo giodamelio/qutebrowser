@@ -12,15 +12,17 @@ Module attributes:
 import os
 import operator
 import pathlib
+import dataclasses
 from typing import cast, Any, TYPE_CHECKING
 
 from qutebrowser.qt import machinery
 from qutebrowser.qt.core import QUrl
 from qutebrowser.qt.gui import QFont
 from qutebrowser.qt.widgets import QApplication
-from qutebrowser.qt.webenginecore import QWebEngineSettings, QWebEngineProfile
+from qutebrowser.qt.webenginecore import (QWebEngineSettings, QWebEngineProfile,
+                                          QWebEngineScript)
 
-from qutebrowser.browser import history
+from qutebrowser.browser import history, shared
 from qutebrowser.browser.webengine import (spell, webenginequtescheme, cookies,
                                            webenginedownloads, notification,
                                            profiles)
@@ -28,7 +30,8 @@ from qutebrowser.config import config, websettings
 from qutebrowser.config.websettings import AttributeInfo as Attr
 from qutebrowser.misc import containers, pakjoy
 from qutebrowser.utils import (standarddir, qtutils, message, log,
-                               urlmatch, usertypes, objreg, version, utils)
+                               urlmatch, usertypes, objreg, version, utils,
+                               javascript, resources)
 if TYPE_CHECKING:
     from qutebrowser.browser.webengine import interceptor
 
@@ -390,6 +393,147 @@ def init_user_agent():
     _init_user_agent_str(actual_default_profile.httpUserAgent())
 
 
+def _make_script(name, js_code, *,
+                 world=QWebEngineScript.ScriptWorldId.ApplicationWorld,
+                 injection_point=QWebEngineScript.InjectionPoint.DocumentCreation,
+                 subframes=False):
+    """Create a script to run early on a page load."""
+    script = QWebEngineScript()
+    script.setInjectionPoint(injection_point)
+    script.setSourceCode(js_code)
+    script.setWorldId(world)
+    script.setRunsOnSubFrames(subframes)
+    script.setName(f'_qute_{name}')
+    return script
+
+
+def _remove_js(scripts, name):
+    """Remove an early QWebEngineScript."""
+    if machinery.IS_QT6:
+        for script in scripts.find(f'_qute_{name}'):
+            scripts.remove(script)
+    else:  # Qt 5
+        script = scripts.findScript(f'_qute_{name}')
+        if not script.isNull():
+            scripts.remove(script)
+
+
+def _install_stylesheet(scripts):
+    """Install the custom stylesheet.
+
+    Open tabs also get the CSS set directly when the config changes and when
+    a search starts or ends.
+
+    Partially inspired by QupZilla:
+    https://github.com/QupZilla/qupzilla/blob/v2.0/src/lib/app/mainapplication.cpp#L1063-L1101
+    """
+    _remove_js(scripts, 'stylesheet')
+    css = shared.get_user_stylesheet()
+    js_code = javascript.wrap_global(
+        'stylesheet',
+        resources.read_file('javascript/stylesheet.js'),
+        javascript.assemble('stylesheet', 'set_css', css),
+    )
+    scripts.insert(_make_script('stylesheet', js_code, subframes=True))
+
+
+@dataclasses.dataclass
+class _Quirk:
+
+    filename: str
+    injection_point: QWebEngineScript.InjectionPoint = (
+        QWebEngineScript.InjectionPoint.DocumentCreation)
+    world: QWebEngineScript.ScriptWorldId = QWebEngineScript.ScriptWorldId.MainWorld
+    predicate: bool = True
+    name: str | None = None
+
+    def __post_init__(self):
+        if self.name is None:
+            self.name = f"js-{self.filename.replace('_', '-')}"
+
+
+def _get_quirks():
+    """Get a list of all available JS quirks."""
+    versions = version.qtwebengine_versions()
+    return [
+        # FIXME:qt6 Double check which of those are still required
+        _Quirk(
+            'whatsapp_web',
+            injection_point=QWebEngineScript.InjectionPoint.DocumentReady,
+            world=QWebEngineScript.ScriptWorldId.ApplicationWorld,
+        ),
+        _Quirk('discord'),
+        _Quirk(
+            'googledocs',
+            # will be an UA quirk once we set the JS UA as well
+            name='ua-googledocs',
+        ),
+
+        _Quirk(
+            'string_replaceall',
+            predicate=versions.webengine < utils.VersionNumber(5, 15, 3),
+        ),
+        _Quirk(
+            'array_at',
+            predicate=versions.webengine < utils.VersionNumber(6, 3),
+        ),
+    ]
+
+
+def _install_site_specific_quirks(scripts):
+    """Install site-specific quirk scripts."""
+    for quirk in _get_quirks():
+        _remove_js(scripts, f'quirk_{quirk.filename}')
+
+    if not config.val.content.site_specific_quirks.enabled:
+        return
+
+    for quirk in _get_quirks():
+        if not quirk.predicate:
+            continue
+        src = resources.read_file(f'javascript/quirks/{quirk.filename}.user.js')
+        if quirk.name not in config.val.content.site_specific_quirks.skip:
+            scripts.insert(_make_script(
+                f'quirk_{quirk.filename}',
+                src,
+                world=quirk.world,
+                injection_point=quirk.injection_point,
+            ))
+
+
+def _install_scripts(profile: QWebEngineProfile) -> None:
+    """Install qutebrowser's own scripts for all pages of a profile.
+
+    These are profile scripts rather than page scripts because QtWebEngine
+    6.11+ doesn't run page scripts after a cross-site navigation started by
+    the page swaps the renderer process:
+    https://github.com/qutebrowser/qutebrowser/issues/8925
+    """
+    scripts = profile.scripts()
+    assert scripts is not None
+    js_code = javascript.wrap_global(
+        'scripts',
+        resources.read_file('javascript/scroll.js'),
+        resources.read_file('javascript/webelem.js'),
+        resources.read_file('javascript/caret.js'),
+    )
+    # FIXME:qtwebengine what about subframes=True?
+    scripts.insert(_make_script('js', js_code, subframes=True))
+    _install_stylesheet(scripts)
+    _install_site_specific_quirks(scripts)
+
+
+def _update_scripts(option: str) -> None:
+    """Reinstall profile scripts depending on a changed option."""
+    for profile in profiles.get_registry():
+        scripts = profile.scripts()
+        assert scripts is not None
+        if option in ['scrolling.bar', 'content.user_stylesheets']:
+            _install_stylesheet(scripts)
+        elif option == 'content.site_specific_quirks.skip':
+            _install_site_specific_quirks(scripts)
+
+
 def _init_profile(profile: QWebEngineProfile) -> profiles.Teardown:
     """Initialize a new QWebEngineProfile.
 
@@ -418,6 +562,7 @@ def _init_profile(profile: QWebEngineProfile) -> profiles.Teardown:
 
     _global_settings.init_settings()
     _maybe_disable_hangouts_extension(profile)
+    _install_scripts(profile)
 
     def teardown() -> None:
         history.web_history.history_cleared.disconnect(profile.clearAllVisitedLinks)
@@ -686,6 +831,7 @@ def init():
         profiles.registry.acquire(profiles.DEFAULT_KEY, private=False)
 
     config.instance.changed.connect(_update_settings)
+    config.instance.changed.connect(_update_scripts)
 
     log.init.debug("Misc initialization...")
     _init_site_specific_quirks()

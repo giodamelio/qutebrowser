@@ -24,7 +24,7 @@ from qutebrowser.browser.webengine import (webview, webengineelem, tabhistory,
                                            webengineinspector)
 
 from qutebrowser.utils import (usertypes, qtutils, log, javascript, utils,
-                               resources, message, jinja, debug, version, urlutils)
+                               message, jinja, debug, version, urlutils)
 from qutebrowser.qt import sip, machinery
 from qutebrowser.misc import objects, miscwidgets
 
@@ -1017,21 +1017,6 @@ class _WebEnginePermissions(QObject):
             blocking=True)
 
 
-@dataclasses.dataclass
-class _Quirk:
-
-    filename: str
-    injection_point: QWebEngineScript.InjectionPoint = (
-        QWebEngineScript.InjectionPoint.DocumentCreation)
-    world: QWebEngineScript.ScriptWorldId = QWebEngineScript.ScriptWorldId.MainWorld
-    predicate: bool = True
-    name: str | None = None
-
-    def __post_init__(self):
-        if self.name is None:
-            self.name = f"js-{self.filename.replace('_', '-')}"
-
-
 class _WebEngineScripts(QObject):
 
     _widget: webview.WebEngineView
@@ -1053,7 +1038,6 @@ class _WebEngineScripts(QObject):
     @pyqtSlot(str)
     def _on_config_changed(self, option):
         if option in ['scrolling.bar', 'content.user_stylesheets']:
-            self._init_stylesheet()
             self._update_stylesheet()
 
     @pyqtSlot(bool)
@@ -1063,61 +1047,11 @@ class _WebEngineScripts(QObject):
         code = javascript.assemble('stylesheet', 'set_css', css)
         self._tab.run_js_async(code)
 
-    def _inject_js(self, name, js_code, *,
-                   world=QWebEngineScript.ScriptWorldId.ApplicationWorld,
-                   injection_point=QWebEngineScript.InjectionPoint.DocumentCreation,
-                   subframes=False):
-        """Inject the given script to run early on a page load."""
-        script = QWebEngineScript()
-        script.setInjectionPoint(injection_point)
-        script.setSourceCode(js_code)
-        script.setWorldId(world)
-        script.setRunsOnSubFrames(subframes)
-        script.setName(f'_qute_{name}')
-        self._widget.page().scripts().insert(script)
-
-    def _remove_js(self, name):
-        """Remove an early QWebEngineScript."""
-        scripts = self._widget.page().scripts()
-        if machinery.IS_QT6:
-            for script in scripts.find(f'_qute_{name}'):
-                scripts.remove(script)
-        else:  # Qt 5
-            script = scripts.findScript(f'_qute_{name}')
-            if not script.isNull():
-                scripts.remove(script)
-
     def init(self):
-        """Initialize global qutebrowser JavaScript."""
-        js_code = javascript.wrap_global(
-            'scripts',
-            resources.read_file('javascript/scroll.js'),
-            resources.read_file('javascript/webelem.js'),
-            resources.read_file('javascript/caret.js'),
-        )
-        # FIXME:qtwebengine what about subframes=True?
-        self._inject_js('js', js_code, subframes=True)
-        self._init_stylesheet()
-
+        """Initialize Greasemonkey scripts."""
         self._greasemonkey.scripts_reloaded.connect(
             self._inject_all_greasemonkey_scripts)
         self._inject_all_greasemonkey_scripts()
-        self._inject_site_specific_quirks()
-
-    def _init_stylesheet(self):
-        """Initialize custom stylesheets.
-
-        Partially inspired by QupZilla:
-        https://github.com/QupZilla/qupzilla/blob/v2.0/src/lib/app/mainapplication.cpp#L1063-L1101
-        """
-        self._remove_js('stylesheet')
-        css = shared.get_user_stylesheet()
-        js_code = javascript.wrap_global(
-            'stylesheet',
-            resources.read_file('javascript/stylesheet.js'),
-            javascript.assemble('stylesheet', 'set_css', css),
-        )
-        self._inject_js('stylesheet', js_code, subframes=True)
 
     @pyqtSlot()
     def _inject_all_greasemonkey_scripts(self):
@@ -1197,50 +1131,6 @@ class _WebEngineScripts(QObject):
 
             log.greasemonkey.debug(f'adding script: {new_script.name()}')
             page_scripts.insert(new_script)
-
-    def _get_quirks(self):
-        """Get a list of all available JS quirks."""
-        versions = version.qtwebengine_versions()
-        return [
-            # FIXME:qt6 Double check which of those are still required
-            _Quirk(
-                'whatsapp_web',
-                injection_point=QWebEngineScript.InjectionPoint.DocumentReady,
-                world=QWebEngineScript.ScriptWorldId.ApplicationWorld,
-            ),
-            _Quirk('discord'),
-            _Quirk(
-                'googledocs',
-                # will be an UA quirk once we set the JS UA as well
-                name='ua-googledocs',
-            ),
-
-            _Quirk(
-                'string_replaceall',
-                predicate=versions.webengine < utils.VersionNumber(5, 15, 3),
-            ),
-            _Quirk(
-                'array_at',
-                predicate=versions.webengine < utils.VersionNumber(6, 3),
-            ),
-        ]
-
-    def _inject_site_specific_quirks(self):
-        """Add site-specific quirk scripts."""
-        if not config.val.content.site_specific_quirks.enabled:
-            return
-
-        for quirk in self._get_quirks():
-            if not quirk.predicate:
-                continue
-            src = resources.read_file(f'javascript/quirks/{quirk.filename}.user.js')
-            if quirk.name not in config.val.content.site_specific_quirks.skip:
-                self._inject_js(
-                    f'quirk_{quirk.filename}',
-                    src,
-                    world=quirk.world,
-                    injection_point=quirk.injection_point,
-                )
 
 
 class WebEngineTabPrivate(browsertab.AbstractTabPrivate):

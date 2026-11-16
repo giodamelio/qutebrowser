@@ -56,6 +56,10 @@ class TestWebengineScripts:
     def scripts_helper(self, webengine_tab):
         return ScriptsHelper(webengine_tab)
 
+    def test_no_qute_page_scripts(self, scripts_helper):
+        """qutebrowser's own scripts live on the profile, not the page."""
+        assert not scripts_helper.get_scripts(prefix='_qute_')
+
     def test_greasemonkey_undefined_world(self, scripts_helper, caplog):
         """Make sure scripts with non-existent worlds are rejected."""
         scripts = [
